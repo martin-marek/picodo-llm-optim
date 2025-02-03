@@ -1,0 +1,46 @@
+defaults:
+  - _self_
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+seed: 0
+train_batch_size: 64
+eval_batch_size: 64
+ds_train_path: null
+ds_eval_path: null
+eval_num_tokens: null
+eval_every_tokens: 10_000_000
+save_checkpoints: false
+ckpt_save_dir: "weights"
+ckpt_restore_path: null
+ds_offset_idx: 0 # use when resuming from checkpoint
+wandb_project: 'picodo-pretrain'
+wandb_mode: 'online'
+
+model: # GPT2-small (124M params)
+  D: 768  # model/embed dim  = qkv dim
+  H: 12  # num attention heads
+  L: 768  # max context/sequence length
+  N: 12  # number of transformer block layers
+  V: 50257  # vocab size -> must match dataset tokenizer!
+  F: 3072  # FF inner dimension
+  fsdp_enabled: true
+  remat: false
+  dtype: 'bfloat16'
+
+opt:
+  single_step_training: false
+  grad_accumulation_steps: 1
+  num_train_tokens: null
+  peak_learning_rate: 0.002
+  warmup_frac: 0.05
+  decay_frac: 0.1
+  decay_type: "linear"
+  weight_decay: 0.1
+  b1: 0.9
+  b2: 0.98
+  eps: 1.0e-9
+  clip_by_global_norm: null
+  optimizer: "adamw"
+  ewa_halflives: [0.01, 0.02, 0.04]
+  track_swa: false

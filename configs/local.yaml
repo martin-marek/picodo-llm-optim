@@ -1,0 +1,26 @@
+defaults:
+  - default
+  - _self_
+
+train_batch_size: 16
+eval_batch_size: 8
+ds_train_path: '/Users/martin/datasets/fineweb_edu_gpt2_2.5B/train.bin'
+ds_eval_path: '/Users/martin/datasets/fineweb_edu_gpt2_2.5B/val.bin'
+eval_num_tokens: 5_000
+eval_every_tokens: 10_000
+# ckpt_restore_path: 'weights/1_87'
+wandb_project: 'picodo-local'
+wandb_mode: 'offline'
+
+model:
+  D: 32
+  H: 2
+  L: 128
+  N: 3
+  F: 128
+
+opt:
+  # single_step_training: true
+  num_train_tokens: 100_000
+  ewa_halflives: [0.01, 0.02]
+  track_swa: true

@@ -1,0 +1,6 @@
+defaults:
+  - default
+  - _self_
+
+ds_train_path: "/scratch/mm9862/datasets/fineweb_edu_gpt2_2.5B/train.bin"
+ds_eval_path: "/scratch/mm9862/datasets/fineweb_edu_gpt2_2.5B/val.bin"
