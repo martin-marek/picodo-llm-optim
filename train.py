@@ -213,8 +213,9 @@ def train_and_evaluate(c: DictConfig):
     opt_state, loss = train_step_fn(opt_graphdef, opt_state, batch)
     swa, ewas = update_moving_averages(step+1, opt_state.model, swa, ewas, ewa_decays)
     lr = opt_state.opt_state.inner_opt_state.hyperparams.learning_rate.value
+    param_norm = jax.tree.reduce(lambda s, x: s+jnp.abs(x).sum(), opt_state.model, 0.) / n_param
     param_dist = jax.tree.reduce(op.add, jax.tree.map(lambda x0, x1: jnp.abs(x1-x0).sum(), params_init, opt_state.model)) / n_param
-    metrics = {'train_loss': loss, 'param_distance': param_dist, 'learning_rate': lr}
+    metrics = {'train_loss': loss, 'param_distance': param_dist, 'param_norm': param_norm, 'learning_rate': lr}
     return opt_state, metrics, swa, ewas
 
   # start wandb
