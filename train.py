@@ -146,6 +146,7 @@ def compute_metrics_eval(model_graphdef, params, ds_valid, swa, ewas, ewa_decays
   if swa is not None:
     model = nnx.merge(model_graphdef, swa)
     metrics['eval_loss_swa'] = get_ds_loss(model, ds_valid)
+    metrics['eval_acc_swa'] = get_ds_accuracy(model, ds_valid)
 
   # EWA
   for i, _ in enumerate(ewa_decays):
