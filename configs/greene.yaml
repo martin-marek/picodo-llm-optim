@@ -2,5 +2,8 @@ defaults:
   - default
   - _self_
 
+
+train_batch_size: 32
+eval_batch_size: 32
 ds_train_path: "/scratch/mm9862/datasets/fineweb_edu_gpt2_train.bin"
 ds_eval_path: "/scratch/mm9862/datasets/fineweb_edu_gpt2_val.bin"
