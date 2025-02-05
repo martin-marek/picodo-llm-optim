@@ -221,7 +221,7 @@ def train_and_evaluate(c: DictConfig):
 
   # start wandb
   if c.wandb_project is not None:
-    wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode)
+    wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name)
     wandb.summary.update(dict(n_param=n_param))
 
   # training loop

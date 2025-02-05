@@ -16,6 +16,7 @@ ckpt_restore_path: null
 ds_offset_idx: 0 # use when resuming from checkpoint
 wandb_project: 'picodo-pretrain'
 wandb_mode: 'online'
+run_name: null
 
 model: # GPT2-small (124M params)
   D: 768  # model/embed dim  = qkv dim
