@@ -4,8 +4,8 @@ defaults:
   - override hydra/job_logging: disabled
 
 seed: 0
-train_batch_size: 64
-eval_batch_size: 64
+train_batch_size: 32
+eval_batch_size: 32
 ds_train_path: null
 ds_eval_path: null
 eval_num_tokens: null
