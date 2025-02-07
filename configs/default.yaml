@@ -30,6 +30,7 @@ model: # GPT2-small (124M params)
   dtype: 'bfloat16'
 
 opt:
+  optimizer: "adamw"
   single_step_training: false
   grad_accumulation_steps: 1
   num_train_tokens: null
@@ -42,6 +43,8 @@ opt:
   b2: 0.98
   eps: 1.0e-9
   clip_by_global_norm: null
-  optimizer: "adamw"
   ewa_halflives: [0.01, 0.02]
   track_swa: false
+  adamw_ewa_step_size: 0.0
+  adamw_ewa_halflife: 0.01
+  adamw_ewa_zero_init: false

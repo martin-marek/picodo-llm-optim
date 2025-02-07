@@ -69,11 +69,12 @@ def _get_base_optimizer(c: OmegaConf) -> optax.GradientTransformation:
       momentum=c.b1,
     )
   elif optimizer_type == "adamw_ewa":
+    ewa_decay = 0.5**(1/(c.adamw_ewa_halflife * c.num_train_steps))
     base_optimizer = optax.inject_hyperparams(adamw_ewa)(
       learning_rate_fn,
-      ewa_step_size=c.ewa_step_size,
-      ewa_decay=c.ewa_decay,
-      ewa_zero_init=c.ewa_zero_init,
+      ewa_step_size=c.adamw_ewa_step_size,
+      ewa_decay=ewa_decay,
+      ewa_zero_init=c.adamw_ewa_zero_init,
       b1=c.b1,
       b2=c.b2,
       eps=c.eps,
@@ -129,6 +130,6 @@ def adamw_ewa(
   return combine.chain(
     transform.scale_by_adam(b1=b1, b2=b2, eps=eps, nesterov=nesterov),
     transform.add_decayed_weights(weight_decay),
-    transform_add_ewa_grad(ewa_step_size, ewa_decay, ewa_zero_init),
+    transform_add_ewa_grad(ewa_step_size, ewa_decay, ewa_zero_init), # <- this is the only modification
     transform.scale_by_learning_rate(learning_rate),
   )
