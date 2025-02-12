@@ -14,7 +14,7 @@ from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 from omegaconf.dictconfig import DictConfig
-
+from flax.nnx.variablelib import VariableState
 
 def loss_fn(model, batch):
   x, y, weights = data.get_in_out(batch)
@@ -111,8 +111,9 @@ def get_ds_loss_and_grad(model, ds):
 
 
 @jax.jit
-def compute_metrics_eval(model_graphdef, params, ds_valid, swa, ewas, ewa_decays, n_param):
+def compute_metrics_eval(model_graphdef, opt_state, ds_valid, swa, ewas, ewa_decays, n_param):
   metrics = {}
+  params = opt_state.model
 
   # base loss
   model = nnx.merge(model_graphdef, params)
@@ -154,6 +155,25 @@ def compute_metrics_eval(model_graphdef, params, ds_valid, swa, ewas, ewa_decays
     model = nnx.merge(model_graphdef, ewa)
     name = f'eval_loss_ewa_{i}'
     metrics[name] = get_ds_loss(model, ds_valid)
+
+  # ewa projected loss (projecting 'v' onto the direction 'u')
+  def tree_project(v, s):
+    """project 'v' onto 's'"""
+    dot_nd = lambda x, y: jnp.dot(x.flatten(), y.flatten())
+    tree_dot = lambda x, y: jax.tree.reduce(op.add, jax.tree.map(dot_nd, x, y))
+    cp = tree_dot(v, s) / tree_dot(s, s) # projection scalar
+    diff = jax.tree.map(lambda s, v: cp*s - v, s, v) # vector: v -> projection of v onto s
+    return diff
+
+  # ewa2-ewa1 projection
+  ewa1 = jax.tree.map(lambda x: x[0], ewas)
+  ewa2 = jax.tree.map(lambda x: x[1], ewas)
+  v = jax.tree.map(op.sub, params, ewa1) # the parameters vector we're projecting
+  s = jax.tree.map(op.sub, ewa2, ewa1) # we're projecting onto the (e1-e2) line
+  diff = tree_project(v, s)
+  projected_params = jax.tree.map(op.add, params, diff)
+  model = nnx.merge(model_graphdef, projected_params)
+  metrics['eval_loss_ewa_diff'] = get_ds_loss(model, ds_valid)
 
   return metrics
 
@@ -248,7 +268,7 @@ def train_and_evaluate(c: DictConfig):
 
       # eval step
       if (step % c.eval_every_steps == 0) or ((step+1) == c.opt.num_train_steps):
-        pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state.model, ds_valid, swa, ewas, ewa_decays, n_param)
+        pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, swa, ewas, ewa_decays, n_param)
         for i, t in enumerate(c.opt.ewa_halflives):
           pending_metrics_valid[f'eval_loss_ewa_{t*1000:04.0f}'] = pending_metrics_valid.pop(f'eval_loss_ewa_{i}') # rename ewa keys for better readability
 
