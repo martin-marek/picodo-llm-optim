@@ -32,7 +32,7 @@ model: # GPT2-small (124M params)
 opt:
   optimizer: "adamw"
   single_step_training: false
-  grad_accumulation_steps: 1
+  grad_accumulation_steps: 2
   num_train_tokens: null
   peak_learning_rate: 0.002
   warmup_frac: 0.05
@@ -43,8 +43,7 @@ opt:
   b2: 0.98
   eps: 1.0e-9
   clip_by_global_norm: null
-  ewa_halflives: [0.01, 0.02]
+  ema_halflives: [0.01, 0.02]
   track_swa: false
-  adamw_ewa_step_size: 0.0
-  adamw_ewa_halflife: 0.01
-  adamw_ewa_zero_init: false
+  adamw_ema_step_size: 0.0
+  adamw_ema_halflife: 0.01

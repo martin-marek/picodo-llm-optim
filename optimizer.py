@@ -69,26 +69,25 @@ def _get_base_optimizer(c: OmegaConf) -> optax.GradientTransformation:
       learning_rate_fn,
       momentum=c.b1,
     )
-  elif optimizer_type == "adamw_ewa":
-    ewa_decay = 0.5**(1/(c.adamw_ewa_halflife * c.num_train_steps))
-    base_optimizer = optax.inject_hyperparams(adamw_ewa)(
+  elif optimizer_type == "adamw_ema":
+    ema_decay = 0.5**(1/(c.adamw_ema_halflife * c.num_train_steps))
+    base_optimizer = optax.inject_hyperparams(adamw_ema)(
       learning_rate_fn,
-      ewa_step_size=c.adamw_ewa_step_size,
-      ewa_decay=ewa_decay,
-      ewa_zero_init=c.adamw_ewa_zero_init,
+      ema_step_size=c.adamw_ema_step_size,
+      ema_decay=ema_decay,
       b1=c.b1,
       b2=c.b2,
       eps=c.eps,
       weight_decay=c.weight_decay,
     )
-  elif optimizer_type == "adamw_ewa2":
-    ewa_decay1 = 0.5**(1/(c.adamw_ewa_halflife * c.num_train_steps))
-    ewa_decay2 = 0.5**(1/(2*c.adamw_ewa_halflife * c.num_train_steps)) # 2x the halflife of decay1
-    base_optimizer = optax.inject_hyperparams(adamw_ewa2)(
+  elif optimizer_type == "adamw_ema2":
+    ema_decay1 = 0.5**(1/(c.adamw_ema_halflife * c.num_train_steps))
+    ema_decay2 = 0.5**(1/(2*c.adamw_ema_halflife * c.num_train_steps)) # 2x the halflife of decay1
+    base_optimizer = optax.inject_hyperparams(adamw_ema2)(
       learning_rate_fn,
-      ewa_step_size=c.adamw_ewa_step_size,
-      ewa_decay1=ewa_decay1,
-      ewa_decay2=ewa_decay2,
+      ema_step_size=c.adamw_ema_step_size,
+      ema_decay1=ema_decay1,
+      ema_decay2=ema_decay2,
       b1=c.b1,
       b2=c.b2,
       eps=c.eps,
@@ -100,57 +99,47 @@ def _get_base_optimizer(c: OmegaConf) -> optax.GradientTransformation:
   return base_optimizer
 
 
-class EwaUpdateState(NamedTuple):
-  ewa: base.Updates
+class Ema2State(NamedTuple):
+  ema1: base.Updates
+  ema2: base.Updates
   step: jax.Array
 
 
-class Ewa2UpdateState(NamedTuple):
-  ewa1: base.Updates
-  ewa2: base.Updates
-  step: jax.Array
-
-
-def transform_add_ewa_grad(
+def transform_add_ema_grad(
   step_size: float,
   decay: float,
-  zero_init: bool,
 ) -> base.GradientTransformation:
 
   def init_fn(params):
-    ewa = otu.tree_zeros_like(params)
+    ema = otu.tree_zeros_like(params)
     step = jnp.array(0)
-    return EwaUpdateState(ewa, step)
+    return EmaState(ema, step)
 
   def update_fn(updates, state, params):
-    ewa = jax.lax.cond(
-      (~zero_init) & (state.step == 0),
-      lambda: params,
-      lambda: jax.tree.map(lambda e, p: decay*e + (1-decay)*p, state.ewa, params),
-    )
-    updates = jax.tree.map(lambda u, p, e: u + step_size*(e-p), updates, params, ewa)
+    ema = jax.tree.map(lambda e, p: decay*e + (1-decay)*p, state.ema, params)
+    updates = jax.tree.map(lambda u, p, e: u + step_size*(e-p), updates, params, ema)
 
-    return updates, EwaUpdateState(ewa, state.step+1)
+    return updates, optax.EmaState(ema, state.step+1)
 
   return base.GradientTransformation(init_fn, update_fn)
 
 
-def transform_add_ewa2_grad(
+def transform_add_ema2_grad(
   step_size: float,
   decay1: float,
   decay2: float,
 ) -> base.GradientTransformation:
 
   def init_fn(params):
-    ewa1 = otu.tree_zeros_like(params)
-    ewa2 = otu.tree_zeros_like(params)
+    ema1 = otu.tree_zeros_like(params)
+    ema2 = otu.tree_zeros_like(params)
     step = jnp.array(0)
-    return Ewa2UpdateState(ewa1, ewa2, step)
+    return Ema2State(ema1, ema2, step)
 
   def update_fn(updates, state, params):
-    # update ewa
-    ewa1 = jax.tree.map(lambda e, p: decay1*e + (1-decay1)*p, state.ewa1, params)
-    ewa2 = jax.tree.map(lambda e, p: decay2*e + (1-decay2)*p, state.ewa2, params)
+    # update ema
+    ema1 = jax.tree.map(lambda e, p: decay1*e + (1-decay1)*p, state.ema1, params)
+    ema2 = jax.tree.map(lambda e, p: decay2*e + (1-decay2)*p, state.ema2, params)
 
     # get projecttion
     def tree_project(v, s):
@@ -161,24 +150,23 @@ def transform_add_ewa2_grad(
       diff = jax.tree.map(lambda s, v: cp*s - v, s, v) # vector: v -> projection of v onto s
       return diff
 
-    # ewa2-ewa1 projection
-    v = jax.tree.map(op.sub, params, ewa1) # the parameters vector we're projecting
-    s = jax.tree.map(op.sub, ewa2, ewa1) # we're projecting onto the (e1-e2) line
+    # ema2-ema1 projection
+    v = jax.tree.map(op.sub, params, ema1) # the parameters vector we're projecting
+    s = jax.tree.map(op.sub, ema2, ema1) # we're projecting onto the (e1-e2) line
     diff = tree_project(v, s)
 
     # take step toward projection
     updates = jax.tree.map(lambda u, d: u + step_size*d, updates, diff)
 
-    return updates, Ewa2UpdateState(ewa1, ewa2, state.step+1)
+    return updates, Ema2State(ema1, ema2, state.step+1)
 
   return base.GradientTransformation(init_fn, update_fn)
 
 
-def adamw_ewa(
+def adamw_ema(
   learning_rate: base.ScalarOrSchedule,
-  ewa_step_size: float,
-  ewa_decay: float,
-  ewa_zero_init: bool,
+  ema_step_size: float,
+  ema_decay: float,
   b1: float = 0.9,
   b2: float = 0.999,
   eps: float = 1e-08,
@@ -189,16 +177,16 @@ def adamw_ewa(
   return combine.chain(
     transform.scale_by_adam(b1=b1, b2=b2, eps=eps, nesterov=nesterov),
     transform.add_decayed_weights(weight_decay),
-    transform_add_ewa_grad(ewa_step_size, ewa_decay, ewa_zero_init), # <- this is the only modification
+    transform_add_ema_grad(ema_step_size, ema_decay), # <- this is the only modification
     transform.scale_by_learning_rate(learning_rate),
   )
 
 
-def adamw_ewa2(
+def adamw_ema2(
   learning_rate: base.ScalarOrSchedule,
-  ewa_step_size: float,
-  ewa_decay1: float,
-  ewa_decay2: float,
+  ema_step_size: float,
+  ema_decay1: float,
+  ema_decay2: float,
   b1: float = 0.9,
   b2: float = 0.999,
   eps: float = 1e-08,
@@ -209,6 +197,6 @@ def adamw_ewa2(
   return combine.chain(
     transform.scale_by_adam(b1=b1, b2=b2, eps=eps, nesterov=nesterov),
     transform.add_decayed_weights(weight_decay),
-    transform_add_ewa2_grad(ewa_step_size, ewa_decay1, ewa_decay2), # <- this is the only modification
+    transform_add_ema2_grad(ema_step_size, ema_decay1, ema_decay2), # <- this is the only modification
     transform.scale_by_learning_rate(learning_rate),
   )

@@ -54,14 +54,14 @@ def train_step_single_sample(opt_graphdef, opt_state, batch):
   return opt_state, loss_sum/len(batch)
 
 
-def update_moving_averages(step, params, swa, ewas, ewa_decays):
+def update_moving_averages(step, params, swa, emas, ema_decays):
   """note: step must start at 1, not 0"""
 
-  # update EWAs
-  def update_ewa(e, p):
-    d = jnp.expand_dims(ewa_decays, range(1, e.ndim))
+  # update emas
+  def update_ema(e, p):
+    d = jnp.expand_dims(ema_decays, range(1, e.ndim))
     return d * e + (1 - d) * p[None]
-  ewas = jax.tree.map(update_ewa, ewas, params)
+  emas = jax.tree.map(update_ema, emas, params)
 
   # update SWA
   if swa is not None:
@@ -69,7 +69,7 @@ def update_moving_averages(step, params, swa, ewas, ewa_decays):
       return (1-1/step)*s + (1/step)*p
     swa = jax.tree.map(update_swa, swa, params)
 
-  return swa, ewas
+  return swa, emas
 
 
 def welford_update(step, x, mean, m2):
@@ -111,7 +111,7 @@ def get_ds_loss_and_grad(model, ds):
 
 
 @jax.jit
-def compute_metrics_eval(model_graphdef, opt_state, ds_valid, swa, ewas, ewa_decays, n_param):
+def compute_metrics_eval(model_graphdef, opt_state, ds_valid, swa, emas, ema_decays, n_param):
   metrics = {}
   params = opt_state.model
 
@@ -149,31 +149,29 @@ def compute_metrics_eval(model_graphdef, opt_state, ds_valid, swa, ewas, ewa_dec
     metrics['eval_loss_swa'] = get_ds_loss(model, ds_valid)
     metrics['eval_acc_swa'] = get_ds_accuracy(model, ds_valid)
 
-  # EWA
-  for i, _ in enumerate(ewa_decays):
-    ewa = jax.tree.map(lambda x: x[i], ewas)
-    model = nnx.merge(model_graphdef, ewa)
-    name = f'eval_loss_ewa_{i}'
+  # ema
+  for i, _ in enumerate(ema_decays):
+    ema = jax.tree.map(lambda x: x[i], emas)
+    model = nnx.merge(model_graphdef, ema)
+    name = f'eval_loss_ema_{i}'
     metrics[name] = get_ds_loss(model, ds_valid)
 
-  # ewa projected loss (projecting 'v' onto the direction 'u')
-  def tree_project(v, s):
-    """project 'v' onto 's'"""
-    dot_nd = lambda x, y: jnp.dot(x.flatten(), y.flatten())
-    tree_dot = lambda x, y: jax.tree.reduce(op.add, jax.tree.map(dot_nd, x, y))
-    cp = tree_dot(v, s) / tree_dot(s, s) # projection scalar
-    diff = jax.tree.map(lambda s, v: cp*s - v, s, v) # vector: v -> projection of v onto s
-    return diff
-
-  # ewa2-ewa1 projection
-  ewa1 = jax.tree.map(lambda x: x[0], ewas)
-  ewa2 = jax.tree.map(lambda x: x[1], ewas)
-  v = jax.tree.map(op.sub, params, ewa1) # the parameters vector we're projecting
-  s = jax.tree.map(op.sub, ewa2, ewa1) # we're projecting onto the (e1-e2) line
-  diff = tree_project(v, s)
-  projected_params = jax.tree.map(op.add, params, diff)
-  model = nnx.merge(model_graphdef, projected_params)
-  metrics['eval_loss_ewa_diff'] = get_ds_loss(model, ds_valid)
+  # ema projected loss
+  # def tree_project(v, s):
+  #   """project 'v' onto 's'"""
+  #   dot_nd = lambda x, y: jnp.dot(x.flatten(), y.flatten())
+  #   tree_dot = lambda x, y: jax.tree.reduce(op.add, jax.tree.map(dot_nd, x, y))
+  #   cp = tree_dot(v, s) / tree_dot(s, s) # projection scalar
+  #   diff = jax.tree.map(lambda s, v: cp*s - v, s, v) # vector: v -> projection of v onto s
+  #   return diff
+  # ema1 = jax.tree.map(lambda x: x[0], emas)
+  # ema2 = jax.tree.map(lambda x: x[1], emas)
+  # v = jax.tree.map(op.sub, params, ema1) # the parameters vector we're projecting
+  # s = jax.tree.map(op.sub, ema2, ema1) # we're projecting onto the (e1-e2) line
+  # diff = tree_project(v, s)
+  # projected_params = jax.tree.map(op.add, params, diff)
+  # model = nnx.merge(model_graphdef, projected_params)
+  # metrics['eval_loss_ema_diff'] = get_ds_loss(model, ds_valid)
 
   return metrics
 
@@ -187,7 +185,7 @@ def train_and_evaluate(c: DictConfig):
 
   # datastes
   micro_batch_size, r = divmod(c.train_batch_size, c.opt.grad_accumulation_steps)
-  assert c.opt.grad_accumulation_steps == 1, 'grad. accumulation not implemented'
+  # assert c.opt.grad_accumulation_steps == 1, 'grad. accumulation not implemented'
   get_batch_train, ds_train_size = data.make_ds_loader(c.ds_train_path, c.model.L, c.train_batch_size, c.ds_offset_idx)
   get_batch_valid, ds_valid_size = data.make_ds_loader(c.ds_eval_path, c.model.L, c.eval_batch_size)
 
@@ -216,8 +214,8 @@ def train_and_evaluate(c: DictConfig):
   n_param = utils.get_num_model_params(model)
   params_init = nnx.state(model, nnx.Param)
   swa = params_init if c.opt.track_swa else None
-  ewa_decays = jnp.array([0.5**(1/(t*c.opt.num_train_steps)) for t in c.opt.ewa_halflives])
-  ewas = jax.vmap(lambda _: params_init)(range(len(ewa_decays)))
+  ema_decays = jnp.array([0.5**(1/(t*c.opt.num_train_steps)) for t in c.opt.ema_halflives])
+  emas = jax.vmap(lambda _: params_init)(range(len(ema_decays)))
 
   # set checkpoint steps
   decay_steps = int(c.opt.decay_frac * c.opt.num_train_steps)
@@ -229,16 +227,16 @@ def train_and_evaluate(c: DictConfig):
   # define training step
   train_step_fn = train_step_single_sample if c.opt.single_step_training else train_step_full_batch
   @jax.jit
-  def train_step(step, opt_state, batch, swa, ewas, params_init, n_param):
+  def train_step(step, opt_state, batch, swa, emas, params_init, n_param):
     # optimizer.model.train()
     opt_state, loss = train_step_fn(opt_graphdef, opt_state, batch)
-    swa, ewas = update_moving_averages(step+1, opt_state.model, swa, ewas, ewa_decays)
+    swa, emas = update_moving_averages(step+1, opt_state.model, swa, emas, ema_decays)
     lr = opt_state.opt_state.inner_opt_state.hyperparams.learning_rate.value
     param_norm = jax.tree.reduce(lambda s, x: s+jnp.abs(x).sum(), opt_state.model, 0.) / n_param
     param_dist = jax.tree.reduce(op.add, jax.tree.map(lambda x0, x1: jnp.abs(x1-x0).sum(), params_init, opt_state.model)) / n_param
-    ewa_dist = None if len(ewa_decays) < 2 else jax.tree.reduce(op.add, jax.tree.map(lambda x: jnp.abs(x[1]-x[0]).sum(), ewas)) / n_param
-    metrics = {'train_loss': loss, 'param_distance': param_dist, 'param_norm': param_norm, 'learning_rate': lr, 'ewa_dist': ewa_dist}
-    return opt_state, metrics, swa, ewas
+    ema_dist = None if len(ema_decays) < 2 else jax.tree.reduce(op.add, jax.tree.map(lambda x: jnp.abs(x[1]-x[0]).sum(), emas)) / n_param
+    metrics = {'train_loss': loss, 'param_distance': param_dist, 'param_norm': param_norm, 'learning_rate': lr, 'ema_dist': ema_dist}
+    return opt_state, metrics, swa, emas
 
   # start wandb
   if c.wandb_project is not None:
@@ -254,7 +252,7 @@ def train_and_evaluate(c: DictConfig):
       batch = jax.device_put(get_batch_train(step), batch_sharding)
 
       # training step
-      opt_state, metrics_train, swa, ewas = train_step(step, opt_state, batch, swa, ewas, params_init, n_param)
+      opt_state, metrics_train, swa, emas = train_step(step, opt_state, batch, swa, emas, params_init, n_param)
       metrics_train |= {'train_tokens_seen': (step+1)*tokens_per_train_step}
 
       # async logging
@@ -268,9 +266,9 @@ def train_and_evaluate(c: DictConfig):
 
       # eval step
       if (step % c.eval_every_steps == 0) or ((step+1) == c.opt.num_train_steps):
-        pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, swa, ewas, ewa_decays, n_param)
-        for i, t in enumerate(c.opt.ewa_halflives):
-          pending_metrics_valid[f'eval_loss_ewa_{t*1000:04.0f}'] = pending_metrics_valid.pop(f'eval_loss_ewa_{i}') # rename ewa keys for better readability
+        pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, swa, emas, ema_decays, n_param)
+        for i, t in enumerate(c.opt.ema_halflives):
+          pending_metrics_valid[f'eval_loss_ema_{t*1000:04.0f}'] = pending_metrics_valid.pop(f'eval_loss_ema_{i}') # rename ema keys for better readability
 
       # checkpoint
       if c.save_checkpoints and step in checkpoint_steps:
