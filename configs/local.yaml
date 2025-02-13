@@ -20,7 +20,4 @@ model:
   F: 128
 
 opt:
-  # single_step_training: true
   num_train_tokens: 100_000
-  ewa_halflives: [0.01, 0.02]
-  track_swa: true

@@ -6,24 +6,16 @@ from optax import tree_utils as otu
 from optax._src import base
 from optax._src import combine
 from optax._src import transform
-from typing import NamedTuple
+from typing import NamedTuple, Optional, Literal
 from omegaconf import OmegaConf
-
-
-def get_optimizer(c: OmegaConf) -> optax.MultiSteps:
-  """Get optimizer."""
-  optimizer = _get_base_optimizer(c)
-  if c.clip_by_global_norm:
-    optimizer = optax.chain(optax.clip_by_global_norm(c.clip_by_global_norm), optimizer)
-  optimizer = optax.MultiSteps(optimizer, c.grad_accumulation_steps)
-  return optimizer
+import utils
 
 
 def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
   """Creates a learning rate schedule based on the config."""
   warmup_steps = int(c.warmup_frac * c.num_train_steps)
-  decay_steps = int(c.decay_frac * c.num_train_steps)
-  stable_steps = c.num_train_steps - warmup_steps - decay_steps
+  cooldown_steps = int(c.cooldown_frac * c.num_train_steps)
+  stable_steps = c.num_train_steps - warmup_steps - cooldown_steps
 
   # warmup
   schedules = [
@@ -36,167 +28,94 @@ def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
   )
 
   # decay
-  if c.decay_type == "cosine":
-    decay_steps = c.get("decay_steps", c.num_train_steps - warmup_steps)
+  if c.cooldown_type == "cosine":
     schedules.append(
-      optax.cosine_decay_schedule(init_value=c.peak_learning_rate, decay_steps=decay_steps)
+      optax.cosine_decay_schedule(init_value=c.peak_learning_rate, cooldown_steps=cooldown_steps)
     )
-  elif c.decay_type == "linear":
+  elif c.cooldown_type == "linear":
     schedules.append(
-      optax.linear_schedule(init_value=c.peak_learning_rate, end_value=0, transition_steps=decay_steps)
+      optax.linear_schedule(init_value=c.peak_learning_rate, end_value=0, transition_steps=cooldown_steps)
     )
   else:
-    raise NotImplementedError(f"Unsupported decay type: {c.decay_type}")
+    raise NotImplementedError(f"Unsupported decay type: {c.cooldown_type}")
 
   return optax.join_schedules(schedules, boundaries=[warmup_steps, warmup_steps+stable_steps])
 
 
-def _get_base_optimizer(c: OmegaConf) -> optax.GradientTransformation:
-  """Get base optimizer."""
+def get_optimizer(c: OmegaConf) -> optax.MultiSteps:
   learning_rate_fn = get_learning_rate_schedule(c)
-  optimizer_type = c.optimizer
-
-  if optimizer_type == "adamw":
-    base_optimizer = optax.inject_hyperparams(optax.adamw)(
+  optimizer = optax.inject_hyperparams(adamw_ema)(
       learning_rate_fn,
-      b1=c.b1,
-      b2=c.b2,
-      eps=c.eps,
-      weight_decay=c.weight_decay,
+      b1 = c.b1,
+      b2 = c.b2,
+      eps = c.eps,
+      weight_decay = c.weight_decay,
+      ema1_decay = 0.5**(1/(c.ema1_halflife * c.num_train_steps)),
+      ema2_decay = 0.5**(1/(c.ema2_halflife * c.num_train_steps)),
+      ema_update_type = c.ema_update_type,
+      ema_step_size = c.ema_step_size,
     )
-  elif optimizer_type == "sgd":
-    base_optimizer = optax.inject_hyperparams(optax.sgd)(
-      learning_rate_fn,
-      momentum=c.b1,
-    )
-  elif optimizer_type == "adamw_ema":
-    ema_decay = 0.5**(1/(c.adamw_ema_halflife * c.num_train_steps))
-    base_optimizer = optax.inject_hyperparams(adamw_ema)(
-      learning_rate_fn,
-      ema_step_size=c.adamw_ema_step_size,
-      ema_decay=ema_decay,
-      b1=c.b1,
-      b2=c.b2,
-      eps=c.eps,
-      weight_decay=c.weight_decay,
-    )
-  elif optimizer_type == "adamw_ema2":
-    ema_decay1 = 0.5**(1/(c.adamw_ema_halflife * c.num_train_steps))
-    ema_decay2 = 0.5**(1/(2*c.adamw_ema_halflife * c.num_train_steps)) # 2x the halflife of decay1
-    base_optimizer = optax.inject_hyperparams(adamw_ema2)(
-      learning_rate_fn,
-      ema_step_size=c.adamw_ema_step_size,
-      ema_decay1=ema_decay1,
-      ema_decay2=ema_decay2,
-      b1=c.b1,
-      b2=c.b2,
-      eps=c.eps,
-      weight_decay=c.weight_decay,
-    )
-  else:
-    raise ValueError(optimizer_type)
-
-  return base_optimizer
+  optimizer = optax.MultiSteps(optimizer, c.grad_accumulation_steps)
+  return optimizer
 
 
-class Ema2State(NamedTuple):
-  ema1: base.Updates
-  ema2: base.Updates
+class EmaState(NamedTuple):
   step: jax.Array
+  ema1: base.Params
+  ema2: base.Params
 
 
-def transform_add_ema_grad(
-  step_size: float,
-  decay: float,
-) -> base.GradientTransformation:
-
-  def init_fn(params):
-    ema = otu.tree_zeros_like(params)
-    step = jnp.array(0)
-    return EmaState(ema, step)
-
-  def update_fn(updates, state, params):
-    ema = jax.tree.map(lambda e, p: decay*e + (1-decay)*p, state.ema, params)
-    updates = jax.tree.map(lambda u, p, e: u + step_size*(e-p), updates, params, ema)
-
-    return updates, optax.EmaState(ema, state.step+1)
-
-  return base.GradientTransformation(init_fn, update_fn)
-
-
-def transform_add_ema2_grad(
-  step_size: float,
-  decay1: float,
-  decay2: float,
+def transform_add_ema(
+  ema1_decay: float,
+  ema2_decay: float,
+  update_type: Optional[Literal['ema', 'ema_diff', 'ema_moment']] = None,
+  step_size: float = 0.,
 ) -> base.GradientTransformation:
 
   def init_fn(params):
     ema1 = otu.tree_zeros_like(params)
     ema2 = otu.tree_zeros_like(params)
     step = jnp.array(0)
-    return Ema2State(ema1, ema2, step)
+    return EmaState(step, ema1, ema2)
 
   def update_fn(updates, state, params):
+
     # update ema
-    ema1 = jax.tree.map(lambda e, p: decay1*e + (1-decay1)*p, state.ema1, params)
-    ema2 = jax.tree.map(lambda e, p: decay2*e + (1-decay2)*p, state.ema2, params)
+    ema1 = jax.tree.map(lambda e, p: ema1_decay*e + (1-ema1_decay)*p, state.ema1, params)
+    ema2 = jax.tree.map(lambda e, p: ema2_decay*e + (1-ema2_decay)*p, state.ema2, params)
 
-    # get projecttion
-    def tree_project(v, s):
-      """project 'v' onto 's'"""
-      dot_nd = lambda x, y: jnp.dot(x.flatten(), y.flatten())
-      tree_dot = lambda x, y: jax.tree.reduce(op.add, jax.tree.map(dot_nd, x, y))
-      cp = tree_dot(v, s) / tree_dot(s, s) # projection scalar
-      diff = jax.tree.map(lambda s, v: cp*s - v, s, v) # vector: v -> projection of v onto s
-      return diff
+    # step toward ema
+    if update_type == 'ema':
+      updates = jax.tree.map(lambda u, p, e: u + step_size*(e-p), updates, params, ema)
 
-    # ema2-ema1 projection
-    v = jax.tree.map(op.sub, params, ema1) # the parameters vector we're projecting
-    s = jax.tree.map(op.sub, ema2, ema1) # we're projecting onto the (e1-e2) line
-    diff = tree_project(v, s)
+    # step toward ema diff projection
+    if update_type == 'ema_diff':
+      v = jax.tree.map(op.sub, params, state.ema1) # the parameters vector we're projecting
+      s = jax.tree.map(op.sub,  state.ema2, state.ema1) # we're projecting onto the (e1-e2) line
+      diff = utils.tree_project(v, s)
+      updates = jax.tree.map(lambda u, d: u + step_size*d, updates, diff)
 
-    # take step toward projection
-    updates = jax.tree.map(lambda u, d: u + step_size*d, updates, diff)
-
-    return updates, Ema2State(ema1, ema2, state.step+1)
+    return updates, EmaState(state.step+1, ema1, ema2)
 
   return base.GradientTransformation(init_fn, update_fn)
 
 
 def adamw_ema(
   learning_rate: base.ScalarOrSchedule,
-  ema_step_size: float,
-  ema_decay: float,
   b1: float = 0.9,
   b2: float = 0.999,
-  eps: float = 1e-08,
+  eps: float = 1e-8,
   weight_decay: float = 1e-4,
-  nesterov: bool = False,
+  ema1_decay: float = 0.,
+  ema2_decay: float = 0.,
+  ema_update_type: Optional[Literal['ema', 'ema_diff', 'ema_moment']] = None,
+  ema_step_size: float = 0.,
 ) -> base.GradientTransformation:
+  """modified version of optax.adamw: https://github.com/google-deepmind/optax/blob/bff9977bec9aeccc63bf5fd3157d289a5b00694a/optax/_src/alias.py#L572"""
 
   return combine.chain(
-    transform.scale_by_adam(b1=b1, b2=b2, eps=eps, nesterov=nesterov),
+    transform.scale_by_adam(b1=b1, b2=b2, eps=eps),
     transform.add_decayed_weights(weight_decay),
-    transform_add_ema_grad(ema_step_size, ema_decay), # <- this is the only modification
-    transform.scale_by_learning_rate(learning_rate),
-  )
-
-
-def adamw_ema2(
-  learning_rate: base.ScalarOrSchedule,
-  ema_step_size: float,
-  ema_decay1: float,
-  ema_decay2: float,
-  b1: float = 0.9,
-  b2: float = 0.999,
-  eps: float = 1e-08,
-  weight_decay: float = 1e-4,
-  nesterov: bool = False,
-) -> base.GradientTransformation:
-
-  return combine.chain(
-    transform.scale_by_adam(b1=b1, b2=b2, eps=eps, nesterov=nesterov),
-    transform.add_decayed_weights(weight_decay),
-    transform_add_ema2_grad(ema_step_size, ema_decay1, ema_decay2), # <- this is the only modification
+    transform_add_ema(ema1_decay, ema2_decay, ema_update_type, ema_step_size), # <- this is the only modification compared to adamw
     transform.scale_by_learning_rate(learning_rate),
   )
