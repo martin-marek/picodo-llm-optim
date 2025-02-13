@@ -56,7 +56,7 @@ def get_optimizer(c: OmegaConf) -> MultiSteps:
       ema_update_type=c.ema_update_type,
       ema_step_size=c.ema_step_size,
     )
-  optimizer = MultiSteps(optimizer, c.grad_accumulation_steps)
+  optimizer = MultiSteps(optimizer, c.grad_accumulation_steps, c.grad_accumulation_bias)
   return optimizer
 
 
