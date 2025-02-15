@@ -1,0 +1,6 @@
+defaults:
+  - default
+  - _self_
+
+ds_train_path: "/home/martin/datasets/fineweb_edu_gpt2_train.bin"
+ds_eval_path: "/home/martin/datasets/fineweb_edu_gpt2_val.bin"
