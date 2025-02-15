@@ -37,8 +37,8 @@ opt:
   num_train_tokens: null
   peak_learning_rate: 0.002
   warmup_frac: 0.05
-  cooldown_frac: 0.1
-  cooldown_type: "linear"
+  cooldown_frac: 0.95
+  cooldown_type: "cosine"
   adam_t1: 1_000_000
   adam_t2_t1_ratio: 5
   weight_decay: 0.1
