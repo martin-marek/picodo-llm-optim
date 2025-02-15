@@ -32,7 +32,7 @@ model: # GPT2-small (124M params)
 opt:
   optimizer: "adamw"
   single_step_training: false
-  grad_accumulation_steps: 2
+  grad_accumulation_steps: 1
   grad_accumulation_bias: 0
   num_train_tokens: null
   peak_learning_rate: 0.002
