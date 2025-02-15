@@ -31,7 +31,7 @@ def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
   # decay
   if c.cooldown_type == "cosine":
     schedules.append(
-      optax.cosine_decay_schedule(init_value=c.peak_learning_rate, cooldown_steps=cooldown_steps)
+      optax.cosine_decay_schedule(init_value=c.peak_learning_rate, decay_steps=cooldown_steps)
     )
   elif c.cooldown_type == "linear":
     schedules.append(
