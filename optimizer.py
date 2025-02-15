@@ -8,8 +8,7 @@ from optax._src import combine
 from optax._src import transform
 from typing import NamedTuple, Optional, Literal
 from omegaconf import OmegaConf
-import utils
-from multistep import MultiSteps
+import utils, multistep
 
 
 def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
@@ -43,7 +42,7 @@ def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
   return optax.join_schedules(schedules, boundaries=[warmup_steps, warmup_steps+stable_steps])
 
 
-def get_optimizer(c: OmegaConf) -> MultiSteps:
+def get_optimizer(c: OmegaConf):
   learning_rate_fn = get_learning_rate_schedule(c)
   if c.optimizer == "adamw":
     optimizer = optax.inject_hyperparams(optax.adamw)(
@@ -67,7 +66,8 @@ def get_optimizer(c: OmegaConf) -> MultiSteps:
     )
   else:
     raise ValueError(c.optimizer)
-  optimizer = MultiSteps(optimizer, c.grad_accumulation_steps, c.grad_accumulation_bias)
+  multistep_wrapper = multistep.MultiSteps if c.grad_accumulation_steps==1 else multistep.SingleSteps
+  optimizer = multistep_wrapper(optimizer, c.grad_accumulation_steps, c.grad_accumulation_bias)
   return optimizer
 
 

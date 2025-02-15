@@ -16,6 +16,10 @@ class MultiStepsState(NamedTuple):
   grad_stats: Any # Accumulated gradients over multiple mini-steps.
 
 
+class SingleStepsState(NamedTuple):
+  inner_opt_state: Any # The state of the wrapped optimizer.
+
+
 class MultiSteps:
   """https://github.com/google-deepmind/optax/blob/b2e5820f71b43164cfee2eefe287a9692f8e3872/optax/transforms/_accumulation.py#L241#L428"""
   def __init__(
@@ -78,3 +82,26 @@ class MultiSteps:
 
   def gradient_transformation(self) -> base.GradientTransformation:
     return base.GradientTransformation(init=self.init, update=self.update)
+
+
+class SingleSteps:
+  """https://github.com/google-deepmind/optax/blob/b2e5820f71b43164cfee2eefe287a9692f8e3872/optax/transforms/_accumulation.py#L241#L428"""
+  def __init__(self, opt: base.GradientTransformation, *args, **kwargs):
+    self.inner_opt = opt
+
+  def init(self, params: Any) -> MultiStepsState:
+    init_state = SingleStepsState(inner_opt_state=self.inner_opt.init(params),)
+    return init_state
+
+  def update(
+    self,
+    updates: base.Updates,
+    state: MultiStepsState,
+    params: Optional[base.Params] = None,
+  ):
+    return updates, state
+
+
+  def gradient_transformation(self) -> base.GradientTransformation:
+    return base.GradientTransformation(init=self.init, update=self.update)
+
