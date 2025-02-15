@@ -30,7 +30,7 @@ model: # GPT2-small (124M params)
   dtype: 'bfloat16'
 
 opt:
-  optimizer: "adamw_ema"
+  optimizer: "adamw"
   single_step_training: false
   grad_accumulation_steps: 2
   grad_accumulation_bias: 0

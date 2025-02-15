@@ -45,7 +45,16 @@ def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
 
 def get_optimizer(c: OmegaConf) -> MultiSteps:
   learning_rate_fn = get_learning_rate_schedule(c)
-  optimizer = optax.inject_hyperparams(adamw_ema)(
+  if c.optimizer == "adamw":
+    optimizer = optax.inject_hyperparams(optax.adamw)(
+      learning_rate_fn,
+      b1=c.b1,
+      b2=c.b2,
+      eps=c.eps,
+      weight_decay=c.weight_decay,
+    )
+  elif c.optimizer == "adamw_ema":
+    optimizer = optax.inject_hyperparams(adamw_ema)(
       learning_rate_fn,
       b1=c.b1,
       b2=c.b2,
@@ -56,6 +65,8 @@ def get_optimizer(c: OmegaConf) -> MultiSteps:
       ema_update_type=c.ema_update_type,
       ema_step_size=c.ema_step_size,
     )
+  else:
+    raise ValueError(c.optimizer)
   optimizer = MultiSteps(optimizer, c.grad_accumulation_steps, c.grad_accumulation_bias)
   return optimizer
 
