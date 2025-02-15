@@ -4,8 +4,6 @@ defaults:
   - override hydra/job_logging: disabled
 
 seed: 0
-train_batch_size: 64
-eval_batch_size: 64
 ds_train_path: null
 ds_eval_path: null
 eval_num_tokens: null
@@ -31,6 +29,8 @@ model: # GPT2-small (124M params)
 
 opt:
   optimizer: "adamw"
+  train_batch_size: 64
+  eval_batch_size: 64
   single_step_training: false
   grad_accumulation_steps: 1
   grad_accumulation_bias: 0
@@ -39,9 +39,9 @@ opt:
   warmup_frac: 0.05
   cooldown_frac: 0.1
   cooldown_type: "linear"
+  adam_t1: 1_000_000
+  adam_t2_t1_ratio: 5
   weight_decay: 0.1
-  b1: 0.9
-  b2: 0.98
   eps: 1.0e-9
   ema1_halflife: 0.01
   ema2_halflife: 0.02

@@ -44,24 +44,31 @@ def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
 
 
 def get_optimizer(c: OmegaConf):
+  n_tokens_batch = c.train_batch_size * c.grad_accumulation_steps # number of tokens in accumulated batch
+  adam_t1 = c.adam_t1 # halflife measured in num. tokens
+  adam_t2 = c.adam_t1 * c.adam_t2_t1_ratio
+  adam_b1 = utils.halflife_to_decay(adam_t1, n_tokens_batch)
+  adam_b2 = utils.halflife_to_decay(adam_t2, n_tokens_batch)
+  ema1_decay = utils.halflife_to_decay(c.ema1_halflife, n_tokens_batch)
+  ema2_decay = utils.halflife_to_decay(c.ema2_halflife, n_tokens_batch)
   learning_rate_fn = get_learning_rate_schedule(c)
   if c.optimizer == "adamw":
     optimizer = optax.inject_hyperparams(optax.adamw)(
       learning_rate_fn,
-      b1=c.b1,
-      b2=c.b2,
+      b1=adam_b1,
+      b2=adam_b2,
       eps=c.eps,
       weight_decay=c.weight_decay,
     )
   elif c.optimizer == "adamw_ema":
     optimizer = optax.inject_hyperparams(adamw_ema)(
       learning_rate_fn,
-      b1=c.b1,
-      b2=c.b2,
+      b1=adam_b1,
+      b2=adam_b2,
       eps=c.eps,
       weight_decay=c.weight_decay,
-      ema1_decay=0.5**(1/(c.ema1_halflife * c.num_train_steps)),
-      ema2_decay=0.5**(1/(c.ema2_halflife * c.num_train_steps)),
+      ema1_decay=ema1_decay,
+      ema2_decay=ema2_decay,
       ema_update_type=c.ema_update_type,
       ema_step_size=c.ema_step_size,
     )
