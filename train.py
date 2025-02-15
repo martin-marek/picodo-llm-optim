@@ -128,8 +128,6 @@ def train_and_evaluate(c: DictConfig):
   key, key_model = jax.random.split(key)
 
   # datastes
-  micro_batch_size, r = divmod(c.train_batch_size, c.opt.grad_accumulation_steps)
-  # assert c.opt.grad_accumulation_steps == 1, 'grad. accumulation not implemented'
   get_batch_train, ds_train_size = data.make_ds_loader(c.ds_train_path, c.model.L, c.train_batch_size, c.ds_offset_idx)
   get_batch_valid, ds_valid_size = data.make_ds_loader(c.ds_eval_path, c.model.L, c.eval_batch_size)
 
@@ -196,7 +194,7 @@ def train_and_evaluate(c: DictConfig):
 
       # async logging
       if pending_metrics_train is not None:
-        pbar.set_postfix_str(f'loss={pending_metrics_train["train_loss"]:.2f}')
+        pbar.set_postfix_str(f'loss={pending_metrics_train["train_loss"]:5.2f}, lr={pending_metrics_train["learning_rate"]:.5f}')
         wandb.log(pending_metrics_train, step-1)
       pending_metrics_train = metrics_train
       if pending_metrics_valid is not None:

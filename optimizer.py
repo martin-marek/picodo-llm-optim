@@ -13,9 +13,10 @@ import utils, multistep
 
 def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
   """Creates a learning rate schedule based on the config."""
-  warmup_steps = int(c.warmup_frac * c.num_train_steps)
-  cooldown_steps = int(c.cooldown_frac * c.num_train_steps)
-  stable_steps = c.num_train_steps - warmup_steps - cooldown_steps
+  optimizer_steps = c.num_train_steps // c.grad_accumulation_steps
+  warmup_steps = int(c.warmup_frac * optimizer_steps)
+  cooldown_steps = int(c.cooldown_frac * optimizer_steps)
+  stable_steps = optimizer_steps - warmup_steps - cooldown_steps
 
   # warmup
   schedules = [
@@ -66,7 +67,7 @@ def get_optimizer(c: OmegaConf):
     )
   else:
     raise ValueError(c.optimizer)
-  multistep_wrapper = multistep.MultiSteps if c.grad_accumulation_steps==1 else multistep.SingleSteps
+  multistep_wrapper = multistep.SingleSteps if c.grad_accumulation_steps==1 else multistep.MultiSteps
   optimizer = multistep_wrapper(optimizer, c.grad_accumulation_steps, c.grad_accumulation_bias)
   return optimizer
 

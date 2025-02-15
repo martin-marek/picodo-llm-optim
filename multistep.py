@@ -79,7 +79,6 @@ class MultiSteps:
 
     return updates, state
 
-
   def gradient_transformation(self) -> base.GradientTransformation:
     return base.GradientTransformation(init=self.init, update=self.update)
 
@@ -90,7 +89,7 @@ class SingleSteps:
     self.inner_opt = opt
 
   def init(self, params: Any) -> MultiStepsState:
-    init_state = SingleStepsState(inner_opt_state=self.inner_opt.init(params),)
+    init_state = SingleStepsState(self.inner_opt.init(params))
     return init_state
 
   def update(
@@ -99,8 +98,9 @@ class SingleSteps:
     state: MultiStepsState,
     params: Optional[base.Params] = None,
   ):
+    updates, inner_state = self.inner_opt.update(updates, state.inner_opt_state, params=params)
+    state = SingleStepsState(inner_state)
     return updates, state
-
 
   def gradient_transformation(self) -> base.GradientTransformation:
     return base.GradientTransformation(init=self.init, update=self.update)
