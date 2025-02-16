@@ -134,6 +134,7 @@ def train_and_evaluate(c: DictConfig):
   # get number of training steps
   num_train_tokens = c.opt.num_train_tokens or ds_train_size
   tokens_per_train_step = c.opt.train_batch_size * c.model.L
+  tokens_per_train_batch = tokens_per_train_step * c.opt.grad_accumulation_steps
   tokens_per_eval_step = c.opt.eval_batch_size * c.model.L
   c.opt.num_train_steps = num_train_tokens // tokens_per_train_step
   c.eval_num_tokens = c.eval_num_tokens or ds_valid_size
@@ -146,7 +147,7 @@ def train_and_evaluate(c: DictConfig):
   mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ("data",))
   model = model_lib.create_sharded_model(c.model, mesh, c.ckpt_restore_path)
   model_graphdef = nnx.graphdef(model)
-  tx = optimizer_lib.get_optimizer(c.opt) # otax optimizer transform
+  tx = optimizer_lib.get_optimizer(c.opt, tokens_per_train_batch) # otax optimizer transform
   optimizer = nnx.Optimizer(model, tx)
   opt_graphdef, opt_state = nnx.split(optimizer)
   batch_sharding = NamedSharding(mesh, P('data')) # data parallelism

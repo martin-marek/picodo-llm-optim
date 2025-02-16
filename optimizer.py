@@ -43,14 +43,15 @@ def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
   return optax.join_schedules(schedules, boundaries=[warmup_steps, warmup_steps+stable_steps])
 
 
-def get_optimizer(c: OmegaConf):
-  n_tokens_batch = c.train_batch_size * c.grad_accumulation_steps # number of tokens in accumulated batch
+def get_optimizer(c: OmegaConf, tokens_per_train_batch: int):
   adam_t1 = c.adam_t1 # halflife measured in num. tokens
   adam_t2 = c.adam_t1 * c.adam_t2_t1_ratio
-  adam_b1 = utils.halflife_to_decay(adam_t1, n_tokens_batch)
-  adam_b2 = utils.halflife_to_decay(adam_t2, n_tokens_batch)
-  ema1_decay = utils.halflife_to_decay(c.ema1_halflife, n_tokens_batch)
-  ema2_decay = utils.halflife_to_decay(c.ema2_halflife, n_tokens_batch)
+  adam_b1 = utils.halflife_to_decay(adam_t1, tokens_per_train_batch)
+  adam_b2 = utils.halflife_to_decay(adam_t2, tokens_per_train_batch)
+  ema1_decay = utils.halflife_to_decay(c.ema1_halflife, tokens_per_train_batch)
+  ema2_decay = utils.halflife_to_decay(c.ema2_halflife, tokens_per_train_batch)
+  print(f'{c.train_batch_size=}, {c.grad_accumulation_steps=}', f'{tokens_per_train_batch=}', f'{adam_t1=}')
+  print(f'{adam_b1=}, {adam_b2=}')
   learning_rate_fn = get_learning_rate_schedule(c)
   if c.optimizer == "adamw":
     optimizer = optax.inject_hyperparams(optax.adamw)(
