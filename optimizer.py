@@ -50,8 +50,6 @@ def get_optimizer(c: OmegaConf, tokens_per_train_batch: int):
   adam_b2 = utils.halflife_to_decay(adam_t2, tokens_per_train_batch)
   ema1_decay = utils.halflife_to_decay(c.ema1_halflife, tokens_per_train_batch)
   ema2_decay = utils.halflife_to_decay(c.ema2_halflife, tokens_per_train_batch)
-  print(f'{c.train_batch_size=}, {c.grad_accumulation_steps=}', f'{tokens_per_train_batch=}', f'{adam_t1=}')
-  print(f'{adam_b1=}, {adam_b2=}')
   learning_rate_fn = get_learning_rate_schedule(c)
   if c.optimizer == "adamw":
     optimizer = optax.inject_hyperparams(optax.adamw)(
