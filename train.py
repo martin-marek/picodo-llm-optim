@@ -145,7 +145,7 @@ def train_and_evaluate(c: DictConfig):
   # all devices are aligned across a single mesh axis called 'data'
   # we use FSDP to shard data, model, and optimzier parameters across this axis
   mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ("data",))
-  model = model_lib.create_sharded_model(c.model, mesh, c.ckpt_restore_path)
+  model = model_lib.create_sharded_model(c, mesh)
   model_graphdef = nnx.graphdef(model)
   tx = optimizer_lib.get_optimizer(c.opt, tokens_per_train_batch) # otax optimizer transform
   optimizer = nnx.Optimizer(model, tx)

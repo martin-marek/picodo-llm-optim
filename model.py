@@ -79,14 +79,15 @@ def fsdp_init(layer_type: str, fsdp_enabled: bool):
       raise ValueError(f"unrecognized layer type: {layer_type}")
 
 
-def create_sharded_model(c: DictConfig, mesh: Mesh, ckpt_path=None):
+def create_sharded_model(c: DictConfig, mesh: Mesh):
   """https://flax.readthedocs.io/en/latest/guides/flax_gspmd.html"""
   # TODO: add rng key
 
   # initialize sharded model without putting it on a single device
   @nnx.jit
   def initialize_sharded_model():
-    model = TransformerDecoder(c, rngs=nnx.Rngs(0)) # unsharded at this moment
+
+    model = TransformerDecoder(c.model, rngs=nnx.Rngs(c.seed)) # unsharded at this moment
     state = nnx.state(model) # the model's state, a pure pytree
     pspecs = nnx.get_partition_spec(state) # get annotations from state
     sharded_state = jax.lax.with_sharding_constraint(state, pspecs)
@@ -96,9 +97,9 @@ def create_sharded_model(c: DictConfig, mesh: Mesh, ckpt_path=None):
     model = initialize_sharded_model()
 
   # optioanlly load existing checkpoint
-  if ckpt_path is not None:
+  if c.ckpt_restore_path is not None:
     checkpointer = ocp.StandardCheckpointer()
-    state = checkpointer.restore(os.path.abspath(ckpt_path), target=nnx.state(model))
+    state = checkpointer.restore(os.path.abspath(c.ckpt_restore_path), target=nnx.state(model))
     nnx.update(model, state)
 
   return model
