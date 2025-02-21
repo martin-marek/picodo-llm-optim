@@ -85,37 +85,40 @@ def train_step_single_sample(opt_graphdef, opt_state, batch):
 
 
 @jax.jit
-def compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param):
+def compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, eval_batch_size):
   metrics = {}
   params = opt_state.model
 
-  # base loss
+  # compute loss, grads, accuracy
   model = nnx.merge(model_graphdef, params)
   eval_loss, grad_mean, grad_std = get_ds_loss_and_grad(model, ds_valid)
   metrics['eval_loss'] = eval_loss
   metrics['eval_acc'] = get_ds_accuracy(model, ds_valid)
 
-  # gradient norm (using tree)
-  metrics['grad_norm_L2'] = jnp.sqrt(jax.tree.reduce(lambda s, x: s+(x**2).sum(), grad_mean, 0.)) # L2 norm
-
-  # gradient norms (using raveled gradients)
+  # flatten gradients
   grad_mean = jax.tree.map(lambda x: jax.lax.with_sharding_constraint(x.reshape((-1, jax.device_count())), P(None, 'data')), grad_mean)
   grad_mean = jnp.concatenate(jax.tree.leaves(grad_mean)) # [-1, device_count]
-  grad_abs = jnp.abs(grad_mean)
-  lo, hi = jnp.quantile(grad_abs, jnp.array([0.1, 0.9]), axis=0).mean(1)
-  grad_clipped = grad_abs.clip(lo, hi)
-  metrics['grad_median'] = jnp.median(grad_abs, axis=0).mean()
-  metrics['grad_norm_L2_wins'] = jnp.sqrt(jax.tree.reduce(lambda s, x: s+(x**2).sum(), grad_clipped, 0.))
+  grad_std = jax.tree.map(lambda x: jax.lax.with_sharding_constraint(x.reshape((-1, jax.device_count())), P(None, 'data')), grad_std)
+  grad_std = jnp.concatenate(jax.tree.leaves(grad_std)) # [-1, device_count]
+
+  # rescale std
+  # to abstract away batch size, we estimate gradient std of a single sample (rather than a full batch)
+  grad_std *= jnp.sqrt(eval_batch_size)
+
+  # gradient norm
+  metrics['grad_norm_L2'] = jnp.sqrt((grad_mean**2).sum())
+  metrics['grad_median'] = jnp.median(jnp.abs(grad_mean), axis=0).mean()
 
   # gradient variance
-  # to abstract away batch size, we estimate gradient variance of a single sample (rather than a full batch)
-  n_batches = len(ds_valid)
-  std_batch = jax.tree.reduce(lambda s, x: s+x.sum(), grad_std, 0.) / n_param # average over params
-  std_sample = jnp.sqrt(n_batches) * std_batch
-  metrics['grad_std'] = std_sample
-  metrics['grad_std_normalized_L2'] = std_sample / metrics['grad_norm_L2']
-  metrics['grad_std_normalized_wins'] = std_sample / metrics['grad_norm_L2_wins']
-  metrics['grad_std_normalized_median'] = std_sample / metrics['grad_median']
+  grad_std_mean = grad_std.sum() / n_param # average over params
+  metrics['grad_std'] = grad_std_mean
+  metrics['grad_std_normalized_L2'] = grad_std_mean / metrics['grad_norm_L2']
+  metrics['grad_std_normalized_median'] = grad_std_mean / metrics['grad_median']
+
+  # grad sharpe
+  sharpe_abs = jnp.abs(grad_mean) / grad_std
+  metrics['grad_sharpe_mean'] = jnp.mean(sharpe_abs)
+  metrics['grad_sharpe_median'] = jnp.median(sharpe_abs, axis=0).mean()
 
   return metrics
 
@@ -204,7 +207,7 @@ def train_and_evaluate(c: DictConfig):
 
       # eval step
       if (step % c.eval_every_steps == 0) or ((step+1) == c.opt.num_train_steps):
-        pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param)
+        pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, c.opt.eval_batch_size)
 
       # checkpoint
       if c.save_checkpoints and step in checkpoint_steps:
