@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
+from jax.sharding import PartitionSpec as P
 from collections.abc import Mapping
 
 
@@ -64,3 +65,25 @@ def decay_to_halflife(d, n_batch):
     t_steps = jnp.log(1/2) / jnp.log(d)
     t_token = t_steps * n_batch
     return t_token
+
+
+def flatten_model_dict(d):
+  """
+  flattens a fully-sharded model dictionary into a fully-sharded array
+  - input: dictionary of nd-arrays
+  - output: single array with shape [-1, device_count]
+  """
+
+  # we assume that the model is fully sharded across all devices
+  shardings = P(None, 'data')
+  n_devices = jax.device_count()
+
+  # first, we reshape each leaf to [-1, device_count]
+  flat = jax.tree.map(lambda x: jax.lax.with_sharding_constraint(x.reshape((-1, n_devices)), shardings), d)
+
+  # second, we concatenate the leafs
+  # importantly, no data has to move between devices here!
+  flat = jnp.concatenate(jax.tree.leaves(flat)) # [-1, device_count]
+
+  return flat
+

@@ -96,10 +96,8 @@ def compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, eval_batc
   metrics['eval_acc'] = get_ds_accuracy(model, ds_valid)
 
   # flatten gradients
-  grad_mean = jax.tree.map(lambda x: jax.lax.with_sharding_constraint(x.reshape((-1, jax.device_count())), P(None, 'data')), grad_mean)
-  grad_mean = jnp.concatenate(jax.tree.leaves(grad_mean)) # [-1, device_count]
-  grad_std = jax.tree.map(lambda x: jax.lax.with_sharding_constraint(x.reshape((-1, jax.device_count())), P(None, 'data')), grad_std)
-  grad_std = jnp.concatenate(jax.tree.leaves(grad_std)) # [-1, device_count]
+  grad_mean = utils.flatten_model_dict(grad_mean) # [-1, device_count]
+  grad_std = utils.flatten_model_dict(grad_std) # [-1, device_count]
 
   # rescale std
   # to abstract away batch size, we estimate gradient std of a single sample (rather than a full batch)
