@@ -178,14 +178,15 @@ def train_and_evaluate(c: DictConfig):
     return opt_state, metrics
 
   # start wandb
-  if c.wandb_project is not None:
+  if jax.process_index() == 0 and c.wandb_project is not None:
     wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name, dir='/tmp')
     wandb.summary.update(dict(n_param=n_param))
 
   # training loop
   pending_metrics_train = None
   pending_metrics_valid = None
-  pbar = tqdm(range(c.opt.num_train_steps))
+  pbar = range(c.opt.num_train_steps)
+  if jax.process_index() == 0: pbar = tqdm(pbar)
   with mesh:
     for step in pbar:
       batch = jax.device_put(get_batch_train(step), batch_sharding)
@@ -195,13 +196,14 @@ def train_and_evaluate(c: DictConfig):
       metrics_train |= {'train_tokens_seen': (step+1)*tokens_per_train_step}
 
       # async logging
-      if pending_metrics_train is not None:
-        pbar.set_postfix_str(f'loss={pending_metrics_train["train_loss"]:5.2f}, lr={pending_metrics_train["learning_rate"]:.5f}')
-        wandb.log(pending_metrics_train, step-1)
-      pending_metrics_train = metrics_train
-      if pending_metrics_valid is not None:
-        wandb.log(pending_metrics_valid, step-1)
-        pending_metrics_valid = None
+      if jax.process_index() == 0:
+        if pending_metrics_train is not None:
+          pbar.set_postfix_str(f'loss={pending_metrics_train["train_loss"]:5.2f}, lr={pending_metrics_train["learning_rate"]:.5f}')
+          wandb.log(pending_metrics_train, step-1)
+        pending_metrics_train = metrics_train
+        if pending_metrics_valid is not None:
+          wandb.log(pending_metrics_valid, step-1)
+          pending_metrics_valid = None
 
       # eval step
       if (step % c.eval_every_steps == 0) or ((step+1) == c.opt.num_train_steps):
