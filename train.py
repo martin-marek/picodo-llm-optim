@@ -14,7 +14,6 @@ from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 from omegaconf.dictconfig import DictConfig
-from flax.nnx.variablelib import VariableState
 
 
 def loss_fn(model, batch):
