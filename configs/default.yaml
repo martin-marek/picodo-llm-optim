@@ -28,7 +28,7 @@ model: # GPT2-small (124M params)
   dtype: 'bfloat16'
 
 opt:
-  optimizer: "adamw"
+  optimizer: "adamw2"
   train_batch_size: 64
   eval_batch_size: 4
   single_step_training: false

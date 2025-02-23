@@ -59,18 +59,26 @@ def get_optimizer(c: OmegaConf, tokens_per_train_batch: int):
       eps=c.eps,
       weight_decay=c.weight_decay,
     )
-  elif c.optimizer == "adamw_ema":
-    optimizer = optax.inject_hyperparams(adamw_ema)(
+  elif c.optimizer == "adamw2":
+    optimizer = optax.inject_hyperparams(adamw2)(
       learning_rate_fn,
       b1=adam_b1,
       b2=adam_b2,
       eps=c.eps,
       weight_decay=c.weight_decay,
-      ema1_decay=ema1_decay,
-      ema2_decay=ema2_decay,
-      ema_update_type=c.ema_update_type,
-      ema_step_size=c.ema_step_size,
     )
+  # elif c.optimizer == "adamw_ema":
+  #   optimizer = optax.inject_hyperparams(adamw_ema)(
+  #     learning_rate_fn,
+  #     b1=adam_b1,
+  #     b2=adam_b2,
+  #     eps=c.eps,
+  #     weight_decay=c.weight_decay,
+  #     ema1_decay=ema1_decay,
+  #     ema2_decay=ema2_decay,
+  #     ema_update_type=c.ema_update_type,
+  #     ema_step_size=c.ema_step_size,
+  #   )
   else:
     raise ValueError(c.optimizer)
   multistep_wrapper = multistep.SingleSteps if c.grad_accumulation_steps==1 else multistep.MultiSteps
@@ -78,63 +86,106 @@ def get_optimizer(c: OmegaConf, tokens_per_train_batch: int):
   return optimizer
 
 
-class EmaState(NamedTuple):
+# class EmaState(NamedTuple):
+#   step: jax.Array
+#   ema1: base.Params
+#   ema2: base.Params
+
+
+# def transform_add_ema(
+#   ema1_decay: float,
+#   ema2_decay: float,
+#   update_type: Optional[Literal['ema', 'ema_diff', 'ema_moment']] = None,
+#   step_size: float = 0.,
+# ) -> base.GradientTransformation:
+
+#   def init_fn(params):
+#     ema1 = otu.tree_zeros_like(params)
+#     ema2 = otu.tree_zeros_like(params)
+#     step = jnp.array(0)
+#     return EmaState(step, ema1, ema2)
+
+#   def update_fn(updates, state, params):
+
+#     # update ema
+#     ema1 = jax.tree.map(lambda e, p: ema1_decay*e + (1-ema1_decay)*p, state.ema1, params)
+#     ema2 = jax.tree.map(lambda e, p: ema2_decay*e + (1-ema2_decay)*p, state.ema2, params)
+
+#     # step toward ema
+#     if update_type == 'ema':
+#       updates = jax.tree.map(lambda u, p, e: u + step_size*(e-p), updates, params, ema)
+
+#     # step toward ema diff projection
+#     if update_type == 'ema_diff':
+#       v = jax.tree.map(op.sub, params, state.ema1) # the parameters vector we're projecting
+#       s = jax.tree.map(op.sub,  state.ema2, state.ema1) # we're projecting onto the (e1-e2) line
+#       diff = utils.tree_project(v, s)
+#       updates = jax.tree.map(lambda u, d: u + step_size*d, updates, diff)
+
+#     return updates, EmaState(state.step+1, ema1, ema2)
+
+#   return base.GradientTransformation(init_fn, update_fn)
+
+
+# def adamw_ema(
+#   learning_rate: base.ScalarOrSchedule,
+#   b1: float = 0.9,
+#   b2: float = 0.999,
+#   eps: float = 1e-8,
+#   weight_decay: float = 1e-4,
+#   ema1_decay: float = 0.,
+#   ema2_decay: float = 0.,
+#   ema_update_type: Optional[Literal['ema', 'ema_diff', 'ema_moment']] = None,
+#   ema_step_size: float = 0.,
+# ) -> base.GradientTransformation:
+#   """modified version of optax.adamw: https://github.com/google-deepmind/optax/blob/bff9977bec9aeccc63bf5fd3157d289a5b00694a/optax/_src/alias.py#L572"""
+
+#   return combine.chain(
+#     transform.scale_by_adam(b1=b1, b2=b2, eps=eps),
+#     transform.add_decayed_weights(weight_decay),
+#     transform_add_ema(ema1_decay, ema2_decay, ema_update_type, ema_step_size), # <- this is the only modification compared to adamw
+#     transform.scale_by_learning_rate(learning_rate),
+#   )
+
+
+class ScaleByAdamW2State(NamedTuple):
   step: jax.Array
-  ema1: base.Params
-  ema2: base.Params
+  m1: base.Params # ema of g
+  m2: base.Params # ema of g**2
+  # m3: base.Params # ema of g, different decay from m1
+  # ema1: base.Params # ema of params
+  # ema2: base.Params # ema of params
 
 
-def transform_add_ema(
-  ema1_decay: float,
-  ema2_decay: float,
-  update_type: Optional[Literal['ema', 'ema_diff', 'ema_moment']] = None,
-  step_size: float = 0.,
+def adamw2(
+    learning_rate: float,
+    b1: float = 0.9,
+    b2: float = 0.999,
+    eps: float = 1e-8,
+    weight_decay: float = 1e-4,
 ) -> base.GradientTransformation:
 
   def init_fn(params):
-    ema1 = otu.tree_zeros_like(params)
-    ema2 = otu.tree_zeros_like(params)
-    step = jnp.array(0)
-    return EmaState(step, ema1, ema2)
+    step = jnp.zeros([], jnp.int32)
+    m1 = otu.tree_zeros_like(params)
+    m2 = otu.tree_zeros_like(params)
+    return ScaleByAdamW2State(step, m1, m2)
 
   def update_fn(updates, state, params):
 
-    # update ema
-    ema1 = jax.tree.map(lambda e, p: ema1_decay*e + (1-ema1_decay)*p, state.ema1, params)
-    ema2 = jax.tree.map(lambda e, p: ema2_decay*e + (1-ema2_decay)*p, state.ema2, params)
+    # scale by adam
+    m1 = otu.tree_update_moment(updates, state.m1, b1, 1)
+    m2 = otu.tree_update_moment_per_elem_norm(updates, state.m2, b2, 2)
+    m1_hat = otu.tree_bias_correction(m1, b1, state.step+1)
+    m2_hat = otu.tree_bias_correction(m2, b2, state.step+1)
+    updates = jax.tree.map(lambda m, v: m / (jnp.sqrt(v) + eps), m1_hat, m2_hat)
 
-    # step toward ema
-    if update_type == 'ema':
-      updates = jax.tree.map(lambda u, p, e: u + step_size*(e-p), updates, params, ema)
+    # add weight decay
+    updates = jax.tree.map(lambda g, p: g + weight_decay * p, updates, params)
 
-    # step toward ema diff projection
-    if update_type == 'ema_diff':
-      v = jax.tree.map(op.sub, params, state.ema1) # the parameters vector we're projecting
-      s = jax.tree.map(op.sub,  state.ema2, state.ema1) # we're projecting onto the (e1-e2) line
-      diff = utils.tree_project(v, s)
-      updates = jax.tree.map(lambda u, d: u + step_size*d, updates, diff)
+    # scale by lr
+    updates = jax.tree.map(lambda g: -learning_rate * g, updates)
 
-    return updates, EmaState(state.step+1, ema1, ema2)
+    return updates, ScaleByAdamW2State(state.step+1, m1, m2)
 
   return base.GradientTransformation(init_fn, update_fn)
-
-
-def adamw_ema(
-  learning_rate: base.ScalarOrSchedule,
-  b1: float = 0.9,
-  b2: float = 0.999,
-  eps: float = 1e-8,
-  weight_decay: float = 1e-4,
-  ema1_decay: float = 0.,
-  ema2_decay: float = 0.,
-  ema_update_type: Optional[Literal['ema', 'ema_diff', 'ema_moment']] = None,
-  ema_step_size: float = 0.,
-) -> base.GradientTransformation:
-  """modified version of optax.adamw: https://github.com/google-deepmind/optax/blob/bff9977bec9aeccc63bf5fd3157d289a5b00694a/optax/_src/alias.py#L572"""
-
-  return combine.chain(
-    transform.scale_by_adam(b1=b1, b2=b2, eps=eps),
-    transform.add_decayed_weights(weight_decay),
-    transform_add_ema(ema1_decay, ema2_decay, ema_update_type, ema_step_size), # <- this is the only modification compared to adamw
-    transform.scale_by_learning_rate(learning_rate),
-  )
