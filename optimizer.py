@@ -98,8 +98,8 @@ def adamw2(
     m2_updates = updates if m2_bias is None else jax.tree.map(lambda u, s: jnp.sign(u)*jnp.clip(jnp.abs(u)+m2_bias*s, 0), updates, grad_std)
 
     # scale by adam
-    m1 = otu.tree_update_moment(m1_updates, state.m1, b1, 1)
-    m2 = otu.tree_update_moment_per_elem_norm(m2_updates, state.m2, b2, 2)
+    m1 = jax.tree.map(lambda g, m: b1*m + (1-b1)*g, updates, state.m1)
+    m2 = jax.tree.map(lambda g, m: b2*m + (1-b2)*(g**2), updates, state.m2)
     m1_hat = otu.tree_bias_correction(m1, b1, state.step+1)
     m2_hat = otu.tree_bias_correction(m2, b2, state.step+1)
     updates = jax.tree.map(lambda m, v: m / (jnp.sqrt(v) + eps), m1_hat, m2_hat)
