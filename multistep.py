@@ -25,11 +25,11 @@ class MultiSteps:
   def __init__(
     self,
     opt: base.GradientTransformation,
-    every_k_schedule: Union[int, Callable[[chex.Array], chex.Array]],
+    steps: int,
     bias: float = 0.,
   ):
     self.inner_opt = opt
-    self._every_k_schedule = lambda step: every_k_schedule if isinstance(every_k_schedule, int) else every_k_schedule
+    self.steps = steps
     self.bias = bias
 
   def init(self, params: Any) -> MultiStepsState:
@@ -47,8 +47,7 @@ class MultiSteps:
     state: MultiStepsState,
     params: Optional[base.Params] = None,
   ):
-    k_steps = self._every_k_schedule(state.gradient_step)
-    emit = state.mini_step == (k_steps - 1)
+    emit = state.mini_step == (self.steps - 1)
 
     # accumulate grads
     # grad_mean = jax.tree.map(lambda grad, acc: acc + (grad - acc) / (state.mini_step + 1), updates, state.grad_mean)
@@ -57,12 +56,11 @@ class MultiSteps:
     # get grad estimate
     grad_mean = jax.tree.map(lambda _, stats: stats[0], updates, grad_stats)
     grad_std = jax.tree.map(lambda _, stats: jnp.sqrt(stats[1]/(state.mini_step+1)), updates, grad_stats)
-    grad_estimate = jax.tree.map(lambda m, s: jnp.sign(m) * jnp.clip(jnp.abs(m) - self.bias*s, 0), grad_mean, grad_std)
 
     # if emit, do optimzier step
     # otherwise, return zero updates
     updates, inner_state = jax.lax.cond(emit,
-      lambda: self.inner_opt.update(grad_estimate, state.inner_opt_state, params=params),
+      lambda: self.inner_opt.update(grad_mean, state.inner_opt_state, params=params, grad_std=grad_std),
       lambda: (otu.tree_zeros_like(updates), state.inner_opt_state),
     )
 
@@ -71,7 +69,7 @@ class MultiSteps:
 
     # update state
     state = MultiStepsState(
-      mini_step=(state.mini_step + 1) % k_steps,
+      mini_step=(state.mini_step + 1) % self.steps,
       gradient_step=state.gradient_step + emit,
       inner_opt_state=inner_state,
       grad_stats=grad_stats,
@@ -97,8 +95,9 @@ class SingleSteps:
     updates: base.Updates,
     state: MultiStepsState,
     params: Optional[base.Params] = None,
+    **kwargs,
   ):
-    updates, inner_state = self.inner_opt.update(updates, state.inner_opt_state, params=params)
+    updates, inner_state = self.inner_opt.update(updates, state.inner_opt_state, params=params, **kwargs)
     state = SingleStepsState(inner_state)
     return updates, state
 
