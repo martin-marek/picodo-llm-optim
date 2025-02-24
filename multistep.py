@@ -48,7 +48,6 @@ class MultiSteps:
     emit = state.mini_step == (self.steps - 1)
 
     # accumulate grads
-    # grad_mean = jax.tree.map(lambda grad, acc: acc + (grad - acc) / (state.mini_step + 1), updates, state.grad_mean)
     grad_stats = jax.tree.map(lambda g, stats: utils.welford_update(state.mini_step+1, g, *stats), updates, state.grad_stats)
 
     # get grad estimate
