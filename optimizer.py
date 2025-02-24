@@ -14,7 +14,7 @@ import utils, multistep
 
 def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
   """Creates a learning rate schedule based on the config."""
-  optimizer_steps = c.num_train_steps * c.train_batch_size if c.single_step_training else c.num_train_steps // c.grad_accumulation_steps
+  optimizer_steps = c.num_train_steps * c.train_batch_size if c.single_step_training else c.num_train_steps
   warmup_steps = int(c.warmup_frac * optimizer_steps)
   cooldown_steps = int(c.cooldown_frac * optimizer_steps)
   stable_steps = optimizer_steps - warmup_steps - cooldown_steps
@@ -64,10 +64,6 @@ def get_optimizer(c: OmegaConf, tokens_per_train_batch: int):
         weight_decay=c.weight_decay,
         steps=c.grad_accumulation_steps,
         bias=c.grad_accumulation_bias,
-        # ema1_decay=ema1_decay,
-        # ema2_decay=ema2_decay,
-        # ema_update_type=c.ema_update_type,
-        # ema_step_size=c.ema_step_size,
       )
   else:
     raise ValueError(c.optimizer)
@@ -94,7 +90,7 @@ def adamw2(
     m2 = otu.tree_zeros_like(params)
     return ScaleByAdamW2State(step, m1, m2)
 
-  def update_fn(updates, state, params, **kwargs):
+  def update_fn(updates, state, params, grad_std=None):
 
     # scale by adam
     m1 = otu.tree_update_moment(updates, state.m1, b1, 1)
