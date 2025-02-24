@@ -33,7 +33,6 @@ opt:
   eval_batch_size: 4
   single_step_training: false
   grad_accumulation_steps: 1
-  grad_accumulation_bias: 0
   num_train_tokens: null
   peak_learning_rate: 0.002
   warmup_frac: 0.05
@@ -43,6 +42,8 @@ opt:
   adam_t2_t1_ratio: 5
   weight_decay: 0.1
   eps: 1.0e-9
+  m1_bias: null
+  m2_bias: null
   ema1_halflife: 0.01
   ema2_halflife: 0.02
   ema_update_type: null

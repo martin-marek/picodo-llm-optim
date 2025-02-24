@@ -53,20 +53,19 @@ def get_optimizer(c: OmegaConf, tokens_per_train_batch: int):
   ema2_decay = utils.halflife_to_decay(c.ema2_halflife, tokens_per_train_batch)
   learning_rate_fn = get_learning_rate_schedule(c)
   multistep_wrapper = multistep.SingleSteps if c.grad_accumulation_steps==1 else multistep.MultiSteps
-  if c.optimizer == "adamw2":
-    optimizer = optax.inject_hyperparams(
-      lambda learning_rate, b1, b2, eps, weight_decay, steps, bias: 
-        multistep_wrapper(adamw2(learning_rate, b1, b2, eps, weight_decay), steps, bias)
-      )(learning_rate=learning_rate_fn,
-        b1=adam_b1,
-        b2=adam_b2,
-        eps=c.eps,
-        weight_decay=c.weight_decay,
-        steps=c.grad_accumulation_steps,
-        bias=c.grad_accumulation_bias,
-      )
-  else:
-    raise ValueError(c.optimizer)
+  assert c.optimizer == "adamw2"
+  optimizer = optax.inject_hyperparams(
+    lambda learning_rate, b1, b2, eps, weight_decay, m1_bias, m2_bias, steps: 
+      multistep_wrapper(adamw2(learning_rate, b1, b2, eps, weight_decay, m1_bias, m2_bias), steps)
+    )(learning_rate=learning_rate_fn,
+      b1=adam_b1,
+      b2=adam_b2,
+      eps=c.eps,
+      weight_decay=c.weight_decay,
+      m1_bias=c.m1_bias,
+      m2_bias=c.m2_bias,
+      steps=c.grad_accumulation_steps,
+    )
   return optimizer
 
 
@@ -82,6 +81,8 @@ def adamw2(
     b2: float = 0.999,
     eps: float = 1e-8,
     weight_decay: float = 1e-4,
+    m1_bias: Optional[float] = None,
+    m2_bias: Optional[float] = None,
   ) -> base.GradientTransformation:
 
   def init_fn(params):
@@ -92,9 +93,13 @@ def adamw2(
 
   def update_fn(updates, state, params, grad_std=None):
 
+    # bias gradient estimates using grad_std
+    m1_updates = updates if m1_bias is None else jax.tree.map(lambda u, s: jnp.sign(u)*jnp.clip(jnp.abs(u)+m1_bias*s, 0), updates, grad_std)
+    m2_updates = updates if m2_bias is None else jax.tree.map(lambda u, s: jnp.sign(u)*jnp.clip(jnp.abs(u)+m2_bias*s, 0), updates, grad_std)
+
     # scale by adam
-    m1 = otu.tree_update_moment(updates, state.m1, b1, 1)
-    m2 = otu.tree_update_moment_per_elem_norm(updates, state.m2, b2, 2)
+    m1 = otu.tree_update_moment(m1_updates, state.m1, b1, 1)
+    m2 = otu.tree_update_moment_per_elem_norm(m2_updates, state.m2, b2, 2)
     m1_hat = otu.tree_bias_correction(m1, b1, state.step+1)
     m2_hat = otu.tree_bias_correction(m2, b2, state.step+1)
     updates = jax.tree.map(lambda m, v: m / (jnp.sqrt(v) + eps), m1_hat, m2_hat)

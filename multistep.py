@@ -26,11 +26,9 @@ class MultiSteps:
     self,
     opt: base.GradientTransformation,
     steps: int,
-    bias: float = 0.,
   ):
     self.inner_opt = opt
     self.steps = steps
-    self.bias = bias
 
   def init(self, params: Any) -> MultiStepsState:
     init_state = MultiStepsState(
