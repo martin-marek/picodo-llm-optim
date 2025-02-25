@@ -38,7 +38,7 @@ tmux new-session -d "
     # run training job
     cd ~/picodo-llm-optim
     python main.py -cn tpuvm \
-        wandb_project: 'picodo-aditya' \
+        wandb_project='picodo-aditya' \
         run_name='my first training run' \
         opt.train_batch_size=32 \
         opt.peak_learning_rate=0.002 \
@@ -64,7 +64,7 @@ for i in {0..3}; do
         # run training job
         cd ~/picodo-llm-optim
         python main.py -cn tpuvm \
-            wandb_project: 'picodo-aditya' \
+            wandb_project='picodo-aditya' \
             run_name='bs:1 lr:$lr w:$w' \
             opt.train_batch_size=64 \
             opt.single_step_training=True \
