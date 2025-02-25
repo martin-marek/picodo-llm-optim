@@ -7,7 +7,7 @@
 # step 2: ssh to tpu worker
 - worker is `0...7`
 ```bash
-gcloud compute tpus tpu-vm ssh tpu-v4-64 --zone=us-central2-b --worker=7
+gcloud compute tpus tpu-vm ssh martin@tpu-v4-64 --zone=us-central2-b --worker=7
 ```
 
 
@@ -29,7 +29,7 @@ wait 60
 # training run (single run with 4 chips)
 - create a single training run that uses all 4 chips (takes ~1h:40min)
 ```bash
-tmux new-session -d "
+tmux new-session "
     # use all chips (0,1,2,3) on this worker
     export TPU_CHIPS_PER_PROCESS_BOUNDS='2,2,1'
     export TPU_PROCESS_BOUNDS='1,1,1'
