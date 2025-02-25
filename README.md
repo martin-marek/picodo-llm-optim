@@ -27,7 +27,7 @@ wait 60
 
 
 # training run (single run with 4 chips)
-- training run that uses all 4 chips on a single node, takes ~1h:30min
+- create a single training run that uses all 4 chips (takes ~1h:40min)
 ```bash
 tmux new-session -d "
     # use all chips (0,1,2,3) on this worker
@@ -48,9 +48,8 @@ tmux new-session -d "
 
 
 # training run (4 runs, each 1 chip)
-- create 4 training runs, each using 1 chip
-- variable `i` iterates over chip index 0...3
-- for loop over `i` craetes 4 tmux processes
+- create 4 training runs, each using 1 chip (takes ~9 hours)
+- for loop over `i` craetes 4 tmux processes, each process uses chip `i`
 ```bash
 w=0.01
 lrs=(0.0001 0.0002 0.0003 0.0004)
