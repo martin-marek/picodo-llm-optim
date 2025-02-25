@@ -1,12 +1,17 @@
 
-# ssh to tpu worker
+
+# step 1: install the gcloud CLI
+- [https://cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install)
+
+
+# step 2: ssh to tpu worker
 - worker is `0...7`
 ```bash
 gcloud compute tpus tpu-vm ssh tpu-v4-64 --zone=us-central2-b --worker=7
 ```
 
 
-# pull changes from github
+# (step 3): pull changes from github
 ```bash
 cd ~
 rm -rf ~/picodo-llm-optim
@@ -14,7 +19,7 @@ git clone --depth=1 https://github.com/martin-marek/picodo-llm-optim.git
 ```
 
 
-# kill tmux python processes
+# (step 4): kill tmux python processes
 ```bash
 pkill python && tmux kill-server
 wait 60
