@@ -9,7 +9,10 @@
 ```bash
 gcloud compute tpus tpu-vm ssh martin@tpu-v4-64 --zone=us-central2-b --worker=7
 ```
-
+alternatively, set up port forwarding:
+```bash
+gcloud compute tpus tpu-vm ssh martin@tpu-v4-64 --zone=us-central2-b --worker=6 -- -L 8889:localhost:8888
+```
 
 # (step 3): pull changes from github
 ```bash
@@ -57,8 +60,8 @@ for i in {0..3}; do
     lr="${lrs[$i]}"
     tmux new-session -d -s $i "
         # use only chip 'i' for this run
-        export TPU_CHIPS_PER_PROCESS_BOUNDS="1,1,1"
-        export TPU_PROCESS_BOUNDS="1,1,1"
+        export TPU_CHIPS_PER_PROCESS_BOUNDS='1,1,1'
+        export TPU_PROCESS_BOUNDS='1,1,1'
         export TPU_VISIBLE_DEVICES=$i
 
         # run training job
