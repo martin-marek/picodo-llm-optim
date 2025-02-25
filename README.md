@@ -22,7 +22,7 @@ git clone --depth=1 https://github.com/martin-marek/picodo-llm-optim.git
 # (step 4): kill tmux python processes
 ```bash
 pkill python && tmux kill-server
-wait 60
+sleep 60
 ```
 
 
