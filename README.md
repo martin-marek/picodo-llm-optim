@@ -5,6 +5,15 @@
 gcloud compute tpus tpu-vm ssh tpu-v4-64 --zone=us-central2-b --worker=7
 ```
 
+
+# pull changes from github
+```bash
+cd ~
+rm -rf ~/picodo-llm-optim
+git clone --depth=1 https://github.com/martin-marek/picodo-llm-optim.git
+```
+
+
 # kill tmux python processes
 ```bash
 pkill python && tmux kill-server
