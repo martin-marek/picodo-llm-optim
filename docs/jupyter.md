@@ -20,4 +20,4 @@ tmux new-session -d "jupyter lab --NotebookApp.token=''"
 
 
 # step 4
-- use one of the provided [jupyter notebooks](notebooks) for training
+- use one of the provided [jupyter notebooks](/notebooks) for training
