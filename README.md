@@ -53,5 +53,4 @@ python main.py -cn tpuvm \
     opt.peak_learning_rate=0.0002 \
     opt.adam_t2_t1_ratio=24 \
     opt.weight_decay=0.005
-done
 ```
