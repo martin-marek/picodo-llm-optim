@@ -1,25 +1,12 @@
 
-
-# step 1: install the gcloud CLI
-- [https://cloud.google.com/sdk/docs/install](https://cloud.google.com/sdk/docs/install)
-
-
-# step 2: ssh to tpu worker
+# step 1: ssh to tpu worker
 - worker is `0...7`
 ```bash
 gcloud compute tpus tpu-vm ssh martin@tpu-v4-64 --zone=us-central2-b --worker=7
 ```
 
 
-# (step 3): pull changes from github
-```bash
-cd ~
-rm -rf ~/picodo-llm-optim
-git clone --depth=1 https://github.com/martin-marek/picodo-llm-optim.git
-```
-
-
-# (step 4): kill tmux python processes
+# (step 2): kill existing python processes
 ```bash
 pkill python && tmux kill-server
 sleep 60
@@ -38,12 +25,10 @@ tmux new-session "
     # run training job
     cd ~/picodo-llm-optim
     python main.py -cn tpuvm \
-        wandb_project='picodo-aditya' \
+        wandb_project='picodo-test' \
         run_name='my first training run' \
         opt.train_batch_size=32 \
-        opt.grad_accumulation_steps=10 \
-        opt.peak_learning_rate=0.002 \
-        opt.weight_decay=0.05
+        opt.peak_learning_rate=0.002
 "
 ```
 
@@ -52,7 +37,7 @@ tmux new-session "
 - create 4 training runs, each using 1 chip (takes ~9 hours)
 - for loop over `i` craetes 4 tmux processes, each process uses chip `i`
 ```bash
-w=0.01
+w=0.05
 lrs=(0.0001 0.0002 0.0003 0.0004)
 for i in {0..3}; do
     lr="${lrs[$i]}"
@@ -65,11 +50,11 @@ for i in {0..3}; do
         # run training job
         cd ~/picodo-llm-optim
         python main.py -cn tpuvm \
-            wandb_project='picodo-aditya' \
+            wandb_project='picodo-test' \
             run_name='bs:1 lr:$lr w:$w' \
             opt.train_batch_size=64 \
             opt.single_step_training=True \
-            opt.eval_batch_size=1 \
+            opt.eval_batch_size=16 \
             opt.peak_learning_rate=$lr \
             opt.weight_decay=$w
     "
