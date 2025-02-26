@@ -17,3 +17,7 @@ tmux new-session -d "jupyter lab --NotebookApp.token=''"
 
 # step 3: open jupyter lab in local browser 
 - [http://localhost:8889/lab](http://localhost:8889/lab)
+
+
+# step 4
+- use one of the provided [jupyter notebooks](notebooks) for training
