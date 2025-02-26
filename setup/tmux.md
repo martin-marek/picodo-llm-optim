@@ -9,10 +9,7 @@
 ```bash
 gcloud compute tpus tpu-vm ssh martin@tpu-v4-64 --zone=us-central2-b --worker=7
 ```
-alternatively, set up port forwarding:
-```bash
-gcloud compute tpus tpu-vm ssh martin@tpu-v4-64 --zone=us-central2-b --worker=6 -- -L 8889:localhost:8888
-```
+
 
 # (step 3): pull changes from github
 ```bash
@@ -44,6 +41,7 @@ tmux new-session "
         wandb_project='picodo-aditya' \
         run_name='my first training run' \
         opt.train_batch_size=32 \
+        opt.grad_accumulation_steps=10 \
         opt.peak_learning_rate=0.002 \
         opt.weight_decay=0.05
 "
