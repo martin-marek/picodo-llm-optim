@@ -19,7 +19,7 @@ run_name: null
 model: # GPT2-small (124M params)
   D: 768  # model/embed dim  = qkv dim
   H: 12  # num attention heads
-  L: 768  # max context/sequence length
+  L: 1024  # max context/sequence length
   N: 12  # number of transformer block layers
   V: 50257  # vocab size -> must match dataset tokenizer!
   F: 3072  # FF inner dimension
