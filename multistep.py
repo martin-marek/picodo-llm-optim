@@ -88,7 +88,7 @@ class MultiSteps:
 
         # update state
         state = MultiStepsState(
-            mini_step=(state.mini_step + 1) * emit,
+            mini_step=(state.mini_step + 1) * (1-emit),
             inner_opt_state=inner_state,
             grad_mean=grad_mean,
         )
@@ -143,7 +143,7 @@ class MultiStepsWelford:
 
         # update state
         state = MultiStepsState(
-            mini_step=(state.mini_step + 1) * emit,
+            mini_step=(state.mini_step + 1) * (1-emit),
             inner_opt_state=inner_state,
             grad_stats=grad_stats,
         )
