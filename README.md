@@ -28,7 +28,7 @@ cd ~/picodo-llm-optim
 python main.py -cn tpuvm \
     wandb_project='picodo-test' \
     run_name='bs:32 test' \
-    opt.train_batch_size=32 \
+    opt.train_microbatch_size=32 \
     opt.peak_learning_rate=0.002
 ```
 
@@ -47,7 +47,7 @@ cd ~/picodo-llm-optim
 python main.py -cn tpuvm \
     wandb_project='picodo-test' \
     run_name='bs:1 test' \
-    opt.train_batch_size=64 \
+    opt.train_microbatch_size=64 \
     opt.single_step_training=True \
     opt.eval_batch_size=16 \
     opt.peak_learning_rate=0.0002 \
