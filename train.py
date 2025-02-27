@@ -61,28 +61,6 @@ def get_ds_loss_and_grad(model, ds):
     return loss_mean, grad_mean, grad_std
 
 
-# training step (full batch training)
-def train_step_full_batch(opt_graphdef, opt_state, batch):
-    optimizer = nnx.merge(opt_graphdef, opt_state)
-    loss, grads = nnx.value_and_grad(loss_fn)(optimizer.model, batch)
-    optimizer.update(grads)
-    _, opt_state = nnx.split(optimizer)
-    return opt_state, loss
-
-
-# training step (single sample training)
-def train_step_single_sample(opt_graphdef, opt_state, batch):
-    def step_fn(i, args):
-        opt_state, loss_sum = args
-        optimizer = nnx.merge(opt_graphdef, opt_state)
-        loss, grads = nnx.value_and_grad(loss_fn)(optimizer.model, batch[i, None])
-        optimizer.update(grads)
-        _, opt_state = nnx.split(optimizer)
-        return opt_state, loss_sum+loss
-    opt_state, loss_sum = jax.lax.fori_loop(0, len(batch), step_fn, (opt_state, 0.))
-    return opt_state, loss_sum/len(batch)
-
-
 @jax.jit
 def compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, eval_batch_size):
     metrics = {}
@@ -132,13 +110,13 @@ def train_and_evaluate(c: DictConfig):
     get_batch_valid, ds_valid_size = data.make_ds_loader(c.ds_eval_path, c.model.L, c.opt.eval_batch_size)
 
     # get number of training steps
-    num_train_tokens = c.opt.num_train_tokens or ds_train_size
-    tokens_per_train_microbatch = c.opt.train_microbatch_size * c.model.L
+    c.opt.num_train_tokens = c.opt.num_train_tokens or ds_train_size
+    tokens_per_microbatch = c.opt.train_microbatch_size * c.model.L
     tokens_per_eval_step = c.opt.eval_batch_size * c.model.L
-    c.opt.num_train_steps = num_train_tokens // tokens_per_train_microbatch
+    c.opt.num_microbtach_steps = c.opt.num_train_tokens // tokens_per_microbatch
     c.eval_num_tokens = c.eval_num_tokens or ds_valid_size
     c.eval_steps = max(1, c.eval_num_tokens // tokens_per_eval_step)
-    c.eval_every_steps = max(1, c.eval_every_tokens // tokens_per_train_microbatch)
+    c.eval_every_steps = max(1, c.eval_every_tokens // tokens_per_microbatch)
 
     # model
     # all devices are aligned across a single mesh axis called 'data'
@@ -146,7 +124,7 @@ def train_and_evaluate(c: DictConfig):
     mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ("data",))
     model = model_lib.create_sharded_model(c, mesh)
     model_graphdef = nnx.graphdef(model)
-    tx = optimizer_lib.get_optimizer(c.opt, tokens_per_train_microbatch) # otax optimizer transform
+    tx = optimizer_lib.get_optimizer(c.opt, tokens_per_microbatch) # otax optimizer transform
     optimizer = nnx.Optimizer(model, tx)
     opt_graphdef, opt_state = nnx.split(optimizer)
     batch_sharding = NamedSharding(mesh, P('data')) # data parallelism
@@ -157,18 +135,24 @@ def train_and_evaluate(c: DictConfig):
     params_init = nnx.state(model, nnx.Param)
 
     # set checkpoint steps
-    cooldown_steps = int(c.opt.cooldown_frac * c.opt.num_train_steps)
+    cooldown_steps = int(c.opt.cooldown_frac * c.opt.num_microbtach_steps)
     checkpoint_steps = (
-        c.opt.num_train_steps-cooldown_steps-1, # just before cooldown
-        c.opt.num_train_steps-1, # final step
+        c.opt.num_microbtach_steps-cooldown_steps-1, # just before cooldown
+        c.opt.num_microbtach_steps-1, # final step
     )
-
+    
     # define training step
-    train_step_fn = train_step_single_sample if c.opt.single_step_training else train_step_full_batch
     @jax.jit
     def train_step(step, opt_state, batch, params_init, n_param):
         # optimizer.model.train()
-        opt_state, loss = train_step_fn(opt_graphdef, opt_state, batch)
+
+        # training step
+        optimizer = nnx.merge(opt_graphdef, opt_state)
+        loss, grads = nnx.value_and_grad(loss_fn)(optimizer.model, batch)
+        optimizer.update(grads)
+        _, opt_state = nnx.split(optimizer)
+        
+        # log metrics
         param_norm = jax.tree.reduce(lambda s, x: s+jnp.abs(x).sum(), opt_state.model, 0.) / n_param
         param_dist = jax.tree.reduce(op.add, jax.tree.map(lambda x0, x1: jnp.abs(x1-x0).sum(), params_init, opt_state.model)) / n_param
         metrics = {'train_loss': loss, 'param_distance': param_dist, 'param_norm': param_norm}
@@ -184,7 +168,7 @@ def train_and_evaluate(c: DictConfig):
     # training loop
     pending_metrics_train = None
     pending_metrics_valid = None
-    pbar = range(c.opt.num_train_steps)
+    pbar = range(c.opt.num_microbtach_steps)
     if jax.process_index() == 0: pbar = tqdm(pbar)
     with mesh:
         for step in pbar:
@@ -192,7 +176,7 @@ def train_and_evaluate(c: DictConfig):
 
             # training step
             opt_state, metrics_train, = train_step(step, opt_state, batch, params_init, n_param)
-            metrics_train |= {'train_tokens_seen': (step+1)*tokens_per_train_microbatch}
+            metrics_train |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
 
             # async logging
             if jax.process_index() == 0:
@@ -205,7 +189,7 @@ def train_and_evaluate(c: DictConfig):
                     pending_metrics_valid = None
 
             # eval step
-            if (step % c.eval_every_steps == 0) or ((step+1) == c.opt.num_train_steps):
+            if (step % c.eval_every_steps == 0) or ((step+1) == c.opt.num_microbtach_steps):
                 pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, c.opt.eval_batch_size)
 
             # checkpoint

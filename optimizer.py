@@ -14,10 +14,9 @@ import utils, multistep
 
 def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
     """Creates a learning rate schedule based on the config."""
-    optimizer_steps = c.num_train_steps * c.train_microbatch_size if c.single_step_training else c.num_train_steps
-    warmup_steps = int(c.warmup_frac * optimizer_steps)
-    cooldown_steps = int(c.cooldown_frac * optimizer_steps)
-    stable_steps = optimizer_steps - warmup_steps - cooldown_steps
+    warmup_steps = int(c.warmup_frac * c.num_microbtach_steps)
+    cooldown_steps = int(c.cooldown_frac * c.num_microbtach_steps)
+    stable_steps = c.num_microbtach_steps - warmup_steps - cooldown_steps
 
     # warmup
     schedules = [
@@ -53,7 +52,7 @@ def hparam_str_to_schedule(s, tokens_per_microbatch):
     """
     
     # case 1: scalar value
-    if not isinstance(s, str) or ';' not in s:
+    if (not isinstance(s, str)) or (';' not in s):
         return float(s)
 
     # case 2: picewise constant schedule
@@ -89,23 +88,23 @@ def get_optimizer(c: OmegaConf, tokens_per_microbatch: int):
     multistep_wrapper = multistep.SingleSteps if c.grad_accumulation_steps==1 else multistep.MultiSteps
     assert c.optimizer == "adamw2"
     optimizer = optax.inject_hyperparams(
-        lambda learning_rate, t1, r, weight_decay, steps: 
+        lambda learning_rate, t1, r, weight_decay, grad_acc_steps: 
             multistep_wrapper(
                 adamw2(
                     learning_rate=learning_rate,
-                    tokens_per_microbatch=tokens_per_microbatch,
+                    tokens_per_opt_step=grad_acc_steps*tokens_per_microbatch,
                     t1=t1,
                     r=r,
                     eps=c.eps,
                     weight_decay=weight_decay,
                 ),
-                steps
+                grad_acc_steps,
             )
         )(learning_rate=learning_rate_fn,
           t1=hparam_str_to_schedule(c.adam_t1, tokens_per_microbatch),
           r=hparam_str_to_schedule(c.adam_t2_t1_ratio, tokens_per_microbatch),
           weight_decay=hparam_str_to_schedule(c.weight_decay, tokens_per_microbatch),
-          steps=hparam_str_to_schedule(c.grad_accumulation_steps, tokens_per_microbatch),
+          grad_acc_steps=hparam_str_to_schedule(c.grad_accumulation_steps, tokens_per_microbatch),
         )
     return optimizer
 
@@ -118,7 +117,7 @@ class ScaleByAdamW2State(NamedTuple):
 
 def adamw2(
         learning_rate: float,
-        tokens_per_microbatch: int,
+        tokens_per_opt_step: int,
         t1: float = 2_000_000, # β1 decay half-life in num. tokens
         r: float = 0.999, # ratio of β2/β1 decay half-life
         eps: float = 1e-8,
@@ -127,10 +126,10 @@ def adamw2(
 
     # convert half-lives to decay values
     t2 = t1 * r # β2 decay half-life
-    b1 = utils.halflife_to_decay(t1, tokens_per_microbatch) # β1 decay coefficient
-    b2 = utils.halflife_to_decay(t2, tokens_per_microbatch) # β2 decay coefficient
-    # ema1_decay = utils.halflife_to_decay(c.ema1_halflife, tokens_per_microbatch)
-    # ema2_decay = utils.halflife_to_decay(c.ema2_halflife, tokens_per_microbatch)
+    b1 = utils.halflife_to_decay(t1, tokens_per_opt_step) # β1 decay coefficient
+    b2 = utils.halflife_to_decay(t2, tokens_per_opt_step) # β2 decay coefficient
+    # ema1_decay = utils.halflife_to_decay(c.ema1_halflife, tokens_per_opt_step)
+    # ema2_decay = utils.halflife_to_decay(c.ema2_halflife, tokens_per_opt_step)
 
     def init_fn(params):
         step = jnp.zeros([], jnp.int32)

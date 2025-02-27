@@ -31,7 +31,6 @@ opt:
   optimizer: "adamw2"
   train_microbatch_size: 64
   eval_batch_size: 4
-  single_step_training: false
   grad_accumulation_steps: 1
   num_train_tokens: null
   peak_learning_rate: 0.002
