@@ -45,7 +45,7 @@ class MultiSteps:
         state: MultiStepsState,
         params: Optional[base.Params] = None,
     ):
-        emit = state.mini_step == (self.steps - 1)
+        emit = state.mini_step >= (self.steps - 1)
 
         # accumulate grads
         grad_stats = jax.tree.map(lambda g, stats: utils.welford_update(state.mini_step+1, g, *stats), updates, state.grad_stats)
@@ -66,7 +66,7 @@ class MultiSteps:
 
         # update state
         state = MultiStepsState(
-            mini_step=(state.mini_step + 1) % self.steps,
+            mini_step=(state.mini_step + 1) * emit,
             gradient_step=state.gradient_step + emit,
             inner_opt_state=inner_state,
             grad_stats=grad_stats,

@@ -170,10 +170,11 @@ def train_and_evaluate(c: DictConfig):
     def train_step(step, opt_state, batch, params_init, n_param):
         # optimizer.model.train()
         opt_state, loss = train_step_fn(opt_graphdef, opt_state, batch)
-        lr = opt_state.opt_state.hyperparams.learning_rate.value
         param_norm = jax.tree.reduce(lambda s, x: s+jnp.abs(x).sum(), opt_state.model, 0.) / n_param
         param_dist = jax.tree.reduce(op.add, jax.tree.map(lambda x0, x1: jnp.abs(x1-x0).sum(), params_init, opt_state.model)) / n_param
-        metrics = {'train_loss': loss, 'param_distance': param_dist, 'param_norm': param_norm, 'learning_rate': lr}
+        metrics = {'train_loss': loss, 'param_distance': param_dist, 'param_norm': param_norm}
+        hyperparams = {k:v.value for k, v in opt_state.opt_state.hyperparams.items()}
+        metrics |= hyperparams
         return opt_state, metrics
 
     # start wandb

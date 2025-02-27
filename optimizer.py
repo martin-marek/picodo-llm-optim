@@ -44,27 +44,30 @@ def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
     return optax.join_schedules(schedules, boundaries=[warmup_steps, warmup_steps+stable_steps])
 
 
-def get_optimizer(c: OmegaConf, tokens_per_train_batch: int):
-    adam_t1 = c.adam_t1 # halflife measured in num. tokens
-    adam_t2 = c.adam_t1 * c.adam_t2_t1_ratio
-    adam_b1 = utils.halflife_to_decay(adam_t1, tokens_per_train_batch)
-    adam_b2 = utils.halflife_to_decay(adam_t2, tokens_per_train_batch)
-    ema1_decay = utils.halflife_to_decay(c.ema1_halflife, tokens_per_train_batch)
-    ema2_decay = utils.halflife_to_decay(c.ema2_halflife, tokens_per_train_batch)
+def get_optimizer(c: OmegaConf, tokens_per_microbatch: int):
     learning_rate_fn = get_learning_rate_schedule(c)
-    multistep_wrapper = multistep.SingleSteps if c.grad_accumulation_steps==1 else multistep.MultiSteps
+    # steps = c.grad_accumulation_steps
+    steps = lambda x: x/3
+    multistep_wrapper = multistep.SingleSteps if steps==1 else multistep.MultiSteps
     assert c.optimizer == "adamw2"
     optimizer = optax.inject_hyperparams(
-        lambda learning_rate, b1, b2, eps, weight_decay, m1_bias, m2_bias, steps: 
-            multistep_wrapper(adamw2(learning_rate, b1, b2, eps, weight_decay, m1_bias, m2_bias), steps)
+        lambda learning_rate, t1, r, weight_decay, steps: 
+            multistep_wrapper(
+                adamw2(
+                    learning_rate=learning_rate,
+                    tokens_per_microbatch=tokens_per_microbatch,
+                    t1=t1,
+                    r=r,
+                    eps=c.eps,
+                    weight_decay=weight_decay,
+                ),
+                steps
+            )
         )(learning_rate=learning_rate_fn,
-            b1=adam_b1,
-            b2=adam_b2,
-            eps=c.eps,
-            weight_decay=c.weight_decay,
-            m1_bias=c.m1_bias,
-            m2_bias=c.m2_bias,
-            steps=c.grad_accumulation_steps,
+          t1=c.adam_t1,
+          r=c.adam_t2_t1_ratio,
+          weight_decay=c.weight_decay,
+          steps=steps,
         )
     return optimizer
 
@@ -77,13 +80,19 @@ class ScaleByAdamW2State(NamedTuple):
 
 def adamw2(
         learning_rate: float,
-        b1: float = 0.9,
-        b2: float = 0.999,
+        tokens_per_microbatch: int,
+        t1: float = 2_000_000, # β1 decay half-life in num. tokens
+        r: float = 0.999, # ratio of β2/β1 decay half-life
         eps: float = 1e-8,
         weight_decay: float = 1e-4,
-        m1_bias: Optional[float] = None,
-        m2_bias: Optional[float] = None,
     ) -> base.GradientTransformation:
+
+    # convert half-lives to decay values
+    t2 = t1 * r # β2 decay half-life
+    b1 = utils.halflife_to_decay(t1, tokens_per_microbatch) # β1 decay coefficient
+    b2 = utils.halflife_to_decay(t2, tokens_per_microbatch) # β2 decay coefficient
+    # ema1_decay = utils.halflife_to_decay(c.ema1_halflife, tokens_per_microbatch)
+    # ema2_decay = utils.halflife_to_decay(c.ema2_halflife, tokens_per_microbatch)
 
     def init_fn(params):
         step = jnp.zeros([], jnp.int32)
@@ -95,10 +104,7 @@ def adamw2(
 
         # update adam moments
         m1 = jax.tree.map(lambda g, m: b1*m + (1-b1)*g, updates, state.m1)
-        if m2_bias is None:
-            m2 = jax.tree.map(lambda g, m: b2*m + (1-b2)*(g**2), updates, state.m2)
-        else:
-            m2 = jax.tree.map(lambda g, m, s: b2*m + (1-b2)*jnp.clip(g**2 + m2_bias*s**2, 0), updates, state.m2, grad_std)
+        m2 = jax.tree.map(lambda g, m: b2*m + (1-b2)*(g**2), updates, state.m2)
 
         # scale by adam
         m1_hat = otu.tree_bias_correction(m1, b1, state.step+1)
