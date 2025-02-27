@@ -52,7 +52,7 @@ for i in {0..3}; do
         python main.py -cn tpuvm \
             wandb_project='picodo-test' \
             run_name='bs:1 lr:$lr w:$w' \
-            opt.single_step_training=True \
+            opt.train_microbatch_size=1 \
             opt.eval_batch_size=16 \
             opt.peak_learning_rate=$lr \
             opt.weight_decay=$w
