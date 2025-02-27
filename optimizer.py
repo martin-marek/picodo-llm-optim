@@ -44,15 +44,53 @@ def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
     return optax.join_schedules(schedules, boundaries=[warmup_steps, warmup_steps+stable_steps])
 
 
+def hparam_str_to_schedule(s, tokens_per_microbatch):
+    """
+    - 's' must be either a scalar or schedule in the format "b1:v1;b2:v2...", where 'b:v' is boundary:value
+    - example inputs: '1', '5.2', '0:5;100:10;200:20'
+    - the boundaries are measured in number of tokens seen
+    - the returned schedule is piecewise constant
+    """
+    
+    # case 1: scalar value
+    if not isinstance(s, str) or ';' not in s:
+        return float(s)
+
+    # case 2: picewise constant schedule
+    # assuming (transition:value) format, e.g. "0:5;1_000:10"
+
+    # get transition boundaries and values
+    values = {}
+    for item in s.split(';'):
+        boundary, value = item.split(':')
+        boundary = int(boundary)
+        values[boundary] = float(value)
+    
+    # get initial value
+    if 0 not in values:
+        raise ValueError('Schedule must include a value for step 0')
+    init_value = values.pop(0)
+
+    # create schedule function
+    def schedule(microbatch_step):
+        v = init_value
+        tokens_seen = microbatch_step * tokens_per_microbatch
+        for boundary, value in sorted(values.items()):
+            # if tokens_seen >= boundary, update value; otherwise keep current value
+            update = (tokens_seen >= boundary)
+            v = value * update + (1 - update) * v
+        return v
+        
+    return schedule
+
+
 def get_optimizer(c: OmegaConf, tokens_per_microbatch: int):
     learning_rate_fn = get_learning_rate_schedule(c)
-    # steps = c.grad_accumulation_steps
-    steps = lambda x: x/3
-    multistep_wrapper = multistep.SingleSteps if steps==1 else multistep.MultiSteps
+    # multistep_wrapper = multistep.SingleSteps if steps==1 else multistep.MultiSteps
     assert c.optimizer == "adamw2"
     optimizer = optax.inject_hyperparams(
         lambda learning_rate, t1, r, weight_decay, steps: 
-            multistep_wrapper(
+            multistep.MultiSteps(
                 adamw2(
                     learning_rate=learning_rate,
                     tokens_per_microbatch=tokens_per_microbatch,
@@ -64,10 +102,10 @@ def get_optimizer(c: OmegaConf, tokens_per_microbatch: int):
                 steps
             )
         )(learning_rate=learning_rate_fn,
-          t1=c.adam_t1,
-          r=c.adam_t2_t1_ratio,
-          weight_decay=c.weight_decay,
-          steps=steps,
+          t1=hparam_str_to_schedule(c.adam_t1, tokens_per_microbatch),
+          r=hparam_str_to_schedule(c.adam_t2_t1_ratio, tokens_per_microbatch),
+          weight_decay=hparam_str_to_schedule(c.weight_decay, tokens_per_microbatch),
+          steps=hparam_str_to_schedule(c.grad_accumulation_steps, tokens_per_microbatch),
         )
     return optimizer
 

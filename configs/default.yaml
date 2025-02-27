@@ -29,7 +29,7 @@ model: # GPT2-small (124M params)
 
 opt:
   optimizer: "adamw2"
-  train_batch_size: 64
+  train_microbatch_size: 64
   eval_batch_size: 4
   single_step_training: false
   grad_accumulation_steps: 1
@@ -42,8 +42,6 @@ opt:
   adam_t2_t1_ratio: 5
   weight_decay: 0.1
   eps: 1.0e-9
-  m1_bias: null
-  m2_bias: null
   ema1_halflife: 0.01
   ema2_halflife: 0.02
   ema_update_type: null

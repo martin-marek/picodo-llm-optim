@@ -128,18 +128,17 @@ def train_and_evaluate(c: DictConfig):
     key, key_model = jax.random.split(key)
 
     # datastes
-    get_batch_train, ds_train_size = data.make_ds_loader(c.ds_train_path, c.model.L, c.opt.train_batch_size, c.ds_offset_idx)
+    get_batch_train, ds_train_size = data.make_ds_loader(c.ds_train_path, c.model.L, c.opt.train_microbatch_size, c.ds_offset_idx)
     get_batch_valid, ds_valid_size = data.make_ds_loader(c.ds_eval_path, c.model.L, c.opt.eval_batch_size)
 
     # get number of training steps
     num_train_tokens = c.opt.num_train_tokens or ds_train_size
-    tokens_per_train_step = c.opt.train_batch_size * c.model.L
-    tokens_per_train_batch = tokens_per_train_step * c.opt.grad_accumulation_steps
+    tokens_per_train_microbatch = c.opt.train_microbatch_size * c.model.L
     tokens_per_eval_step = c.opt.eval_batch_size * c.model.L
-    c.opt.num_train_steps = num_train_tokens // tokens_per_train_step
+    c.opt.num_train_steps = num_train_tokens // tokens_per_train_microbatch
     c.eval_num_tokens = c.eval_num_tokens or ds_valid_size
     c.eval_steps = max(1, c.eval_num_tokens // tokens_per_eval_step)
-    c.eval_every_steps = max(1, c.eval_every_tokens // tokens_per_train_step)
+    c.eval_every_steps = max(1, c.eval_every_tokens // tokens_per_train_microbatch)
 
     # model
     # all devices are aligned across a single mesh axis called 'data'
@@ -147,7 +146,7 @@ def train_and_evaluate(c: DictConfig):
     mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ("data",))
     model = model_lib.create_sharded_model(c, mesh)
     model_graphdef = nnx.graphdef(model)
-    tx = optimizer_lib.get_optimizer(c.opt, tokens_per_train_batch) # otax optimizer transform
+    tx = optimizer_lib.get_optimizer(c.opt, tokens_per_train_microbatch) # otax optimizer transform
     optimizer = nnx.Optimizer(model, tx)
     opt_graphdef, opt_state = nnx.split(optimizer)
     batch_sharding = NamedSharding(mesh, P('data')) # data parallelism
@@ -193,7 +192,7 @@ def train_and_evaluate(c: DictConfig):
 
             # training step
             opt_state, metrics_train, = train_step(step, opt_state, batch, params_init, n_param)
-            metrics_train |= {'train_tokens_seen': (step+1)*tokens_per_train_step}
+            metrics_train |= {'train_tokens_seen': (step+1)*tokens_per_train_microbatch}
 
             # async logging
             if jax.process_index() == 0:
