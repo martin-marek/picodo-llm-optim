@@ -175,7 +175,7 @@ def train_and_evaluate(c: DictConfig):
             # async logging
             if jax.process_index() == 0:
                 if pending_metrics_train is not None:
-                    pbar.set_postfix_str(f'loss={pending_metrics_train['train_loss']:5.2f}, lr={pending_metrics_train['learning_rate']:.5f}')
+                    pbar.set_postfix_str(f'loss={pending_metrics_train["train_loss"]:5.2f}, lr={pending_metrics_train["learning_rate"]:.5f}')
                     wandb.log(pending_metrics_train, step-1)
                 pending_metrics_train = metrics_train
                 if pending_metrics_valid is not None:
