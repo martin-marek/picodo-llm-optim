@@ -25,7 +25,7 @@ model: # GPT2-small (124M params)
   F: 3072  # FF inner dimension
   fsdp_enabled: true
   remat: false
-  dtype: 'float32'
+  dtype: null
 
 opt:
   optimizer: "adamw2"
