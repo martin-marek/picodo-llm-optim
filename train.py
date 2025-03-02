@@ -8,6 +8,7 @@ import orbax.checkpoint as ocp
 import data, utils
 import model as model_lib
 import optimizer as optimizer_lib
+from functools import partial
 from flax import nnx
 from tqdm.auto import tqdm
 from jax.experimental import mesh_utils
@@ -24,26 +25,14 @@ def loss_fn(model, batch):
     return mean_loss
 
 
-def accuracy_fn(model, batch):
+def loss_and_accuracy_fn(model, batch):
     x, y, weights = data.get_in_out(batch)
     logits = model(x)
+    losses = optax.softmax_cross_entropy_with_integer_labels(logits, y).mean()
+    mean_loss = jnp.sum(losses * weights) / weights.sum()
     hits = logits.argmax(-1) == y
     acc = jnp.sum(hits * weights) / weights.sum()
-    return acc
-
-
-def get_ds_loss(model, ds):
-    def step_fn(i, loss):
-        return loss + loss_fn(model, ds[i])
-    loss_sum = jax.lax.fori_loop(0, len(ds), step_fn, 0.)
-    return loss_sum / len(ds)
-
-
-def get_ds_accuracy(model, ds):
-    def step_fn(i, acc):
-        return acc + accuracy_fn(model, ds[i])
-    accuracy_sum = jax.lax.fori_loop(0, len(ds), step_fn, 0.)
-    return accuracy_sum / len(ds)
+    return acc, mean_loss
 
 
 def get_ds_loss_and_grad(model, ds):
@@ -62,38 +51,62 @@ def get_ds_loss_and_grad(model, ds):
 
 
 @jax.jit
-def compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, eval_batch_size):
+def train_step(opt_graphdef, opt_state, batch, params_init, n_param):
+    # optimizer.model.train()
+
+    # training step
+    optimizer = nnx.merge(opt_graphdef, opt_state)
+    loss, grads = nnx.value_and_grad(loss_fn)(optimizer.model, batch)
+    optimizer.update(grads)
+    _, opt_state = nnx.split(optimizer)
+    
+    # log metrics
+    param_norm = jax.tree.reduce(lambda s, x: s+jnp.abs(x).sum(), opt_state.model, 0.) / n_param
+    metrics = {'train_loss': loss, 'param_norm': param_norm}
+    hyperparams = {k:v.value for k, v in opt_state.opt_state.hyperparams.items()}
+    metrics |= hyperparams
+
+    return opt_state, metrics
+
+
+@partial(jax.jit, static_argnames='eval_grads')
+def compute_metrics_eval(model_graphdef, opt_state, ds_valid, eval_grads):
     metrics = {}
     params = opt_state.model
 
-    # compute loss, grads, accuracy
+    # compute loss, accuracy
     model = nnx.merge(model_graphdef, params)
-    eval_loss, grad_mean, grad_std = get_ds_loss_and_grad(model, ds_valid)
-    metrics['eval_loss'] = eval_loss
-    metrics['eval_acc'] = get_ds_accuracy(model, ds_valid)
+    accs, losses = jax.lax.map(partial(loss_and_accuracy_fn, model), ds_valid)
+    metrics['eval_loss'] = losses.mean()
+    metrics['eval_acc'] = accs.mean()
 
-    # flatten gradients
-    grad_mean = utils.flatten_model_dict(grad_mean) # [-1, device_count]
-    grad_std = utils.flatten_model_dict(grad_std) # [-1, device_count]
+    # optionally compute gradient statistics
+    if eval_grads:
+        # compute gradients
+        _, grad_mean, grad_std = get_ds_loss_and_grad(model, ds_valid)
 
-    # rescale std
-    # to abstract away batch size, we estimate gradient std of a single sample (rather than a full batch)
-    grad_std *= jnp.sqrt(eval_batch_size)
+        # flatten gradients
+        grad_mean = utils.flatten_model_dict(grad_mean) # [-1, device_count]
+        grad_std = utils.flatten_model_dict(grad_std) # [-1, device_count]
 
-    # gradient norm
-    metrics['grad_norm_L2'] = jnp.sqrt((grad_mean**2).sum())
-    metrics['grad_median'] = jnp.median(jnp.abs(grad_mean), axis=0).mean()
+        # rescale std
+        # to abstract away batch size, we estimate gradient std of a single sample (rather than a full batch)
+        eval_batch_size = len(ds_valid[0])
+        grad_std *= jnp.sqrt(eval_batch_size)
 
-    # gradient variance
-    grad_std_mean = grad_std.sum() / n_param # average over params
-    metrics['grad_std'] = grad_std_mean
-    metrics['grad_std_normalized_L2'] = grad_std_mean / metrics['grad_norm_L2']
-    metrics['grad_std_normalized_median'] = grad_std_mean / metrics['grad_median']
+        # gradient norm
+        metrics['grad_norm_L2'] = jnp.sqrt((grad_mean**2).sum())
+        metrics['grad_median'] = jnp.median(jnp.abs(grad_mean), axis=0).mean()
 
-    # grad sharpe
-    sharpe_abs = jnp.abs(grad_mean) / grad_std
-    metrics['grad_sharpe_mean'] = jnp.mean(sharpe_abs)
-    metrics['grad_sharpe_median'] = jnp.median(sharpe_abs, axis=0).mean()
+        # gradient variance
+        grad_std_mean = grad_std.mean()
+        metrics['grad_std'] = grad_std_mean
+        metrics['grad_std_normalized_median'] = grad_std_mean / metrics['grad_median']
+
+        # grad sharpe
+        sharpe_abs = jnp.abs(grad_mean) / grad_std
+        metrics['grad_sharpe_mean'] = jnp.mean(sharpe_abs)
+        metrics['grad_sharpe_median'] = jnp.median(sharpe_abs, axis=0).mean()
 
     return metrics
 
@@ -140,25 +153,6 @@ def train_and_evaluate(c: DictConfig):
         c.opt.num_microbtach_steps-cooldown_steps-1, # just before cooldown
         c.opt.num_microbtach_steps-1, # final step
     )
-    
-    # define training step
-    @jax.jit
-    def train_step(step, opt_state, batch, params_init, n_param):
-        # optimizer.model.train()
-
-        # training step
-        optimizer = nnx.merge(opt_graphdef, opt_state)
-        loss, grads = nnx.value_and_grad(loss_fn)(optimizer.model, batch)
-        optimizer.update(grads)
-        _, opt_state = nnx.split(optimizer)
-        
-        # log metrics
-        param_norm = jax.tree.reduce(lambda s, x: s+jnp.abs(x).sum(), opt_state.model, 0.) / n_param
-        param_dist = jax.tree.reduce(op.add, jax.tree.map(lambda x0, x1: jnp.abs(x1-x0).sum(), params_init, opt_state.model)) / n_param
-        metrics = {'train_loss': loss, 'param_distance': param_dist, 'param_norm': param_norm}
-        hyperparams = {k:v.value for k, v in opt_state.opt_state.hyperparams.items()}
-        metrics |= hyperparams
-        return opt_state, metrics
 
     # start wandb
     if jax.process_index() == 0 and c.wandb_project is not None:
@@ -175,7 +169,7 @@ def train_and_evaluate(c: DictConfig):
             batch = jax.device_put(get_batch_train(step), batch_sharding)
 
             # training step
-            opt_state, metrics_train, = train_step(step, opt_state, batch, params_init, n_param)
+            opt_state, metrics_train, = train_step(opt_graphdef, opt_state, batch, params_init, n_param)
             metrics_train |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
 
             # async logging
@@ -190,7 +184,7 @@ def train_and_evaluate(c: DictConfig):
 
             # eval step
             if (step % c.eval_every_steps == 0) or ((step+1) == c.opt.num_microbtach_steps):
-                pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, c.opt.eval_batch_size)
+                pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, c.eval_gradients)
 
             # checkpoint
             if c.save_checkpoints and step in checkpoint_steps:

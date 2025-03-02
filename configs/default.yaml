@@ -8,6 +8,7 @@ ds_train_path: null
 ds_eval_path: null
 eval_num_tokens: null
 eval_every_tokens: 10_000_000
+eval_gradients: false
 save_checkpoints: false
 ckpt_save_dir: "weights"
 ckpt_restore_path: null
