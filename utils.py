@@ -41,30 +41,30 @@ def tree_project(v, s):
 
 
 def halflife_to_decay(t_token, n_batch):
-        """
-        notation:
-        - t_token: halflife measured in number of tokens
-        - t_steps: halflife measured in number of steps
-        - n_batch: number of tokens per batch
-        - d: decay coefficient
-        """
-        t_steps = t_token / n_batch # halflife (measured in number of steps)
-        d = (1/2)**(1/t_steps)
-        return d
+    """
+    notation:
+    - t_token: halflife measured in number of tokens
+    - t_steps: halflife measured in number of steps
+    - n_batch: number of tokens per batch
+    - d: decay coefficient
+    """
+    t_steps = t_token / n_batch # halflife (measured in number of steps)
+    d = (1/2)**(1/t_steps)
+    return d
 
 
 def decay_to_halflife(d, n_batch):
-        """
-        notation:
-        - t_token: halflife measured in number of tokens
-        - t_steps: halflife measured in number of steps
-        - n_batch: number of tokens per batch
-        - d: decay coefficient
-        """
-        # note: d**t_steps = 1/2
-        t_steps = jnp.log(1/2) / jnp.log(d)
-        t_token = t_steps * n_batch
-        return t_token
+    """
+    notation:
+    - t_token: halflife measured in number of tokens
+    - t_steps: halflife measured in number of steps
+    - n_batch: number of tokens per batch
+    - d: decay coefficient
+    """
+    # note: d**t_steps = 1/2
+    t_steps = jnp.log(1/2) / jnp.log(d)
+    t_token = t_steps * n_batch
+    return t_token
 
 
 def flatten_model_dict(d):
