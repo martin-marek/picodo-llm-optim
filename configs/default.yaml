@@ -7,10 +7,10 @@ seed: 0
 ds_train_path: null
 ds_eval_path: null
 eval_num_tokens: null
-eval_every_tokens: 10_000_000
+eval_every_tokens: 20_000_000
 eval_gradients: false
 save_checkpoints: false
-ckpt_save_dir: "weights"
+ckpt_save_dir: 'weights'
 ckpt_restore_path: null
 ds_offset_idx: 0 # use when resuming from checkpoint
 wandb_project: 'picodo-pretrain'
@@ -29,7 +29,7 @@ model: # GPT2-small (124M params)
   dtype: null
 
 opt:
-  optimizer: "adamw2"
+  optimizer: 'adamw2'
   train_microbatch_size: 64
   eval_batch_size: 64
   grad_accumulation_steps: 1
@@ -37,7 +37,7 @@ opt:
   peak_learning_rate: 0.002
   warmup_frac: 0.05
   cooldown_frac: 0.95
-  cooldown_type: "cosine"
+  cooldown_type: 'cosine'
   adam_t1: 2_000_000
   adam_t2_t1_ratio: 5
   weight_decay: 0.1
