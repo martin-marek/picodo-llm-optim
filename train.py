@@ -51,7 +51,7 @@ def get_ds_loss_and_grad(model, ds):
 
 
 @jax.jit
-def train_step(opt_graphdef, opt_state, batch, params_init, n_param):
+def train_step(opt_graphdef, opt_state, batch, params_init):
     # optimizer.model.train()
 
     # training step
@@ -61,16 +61,14 @@ def train_step(opt_graphdef, opt_state, batch, params_init, n_param):
     _, opt_state = nnx.split(optimizer)
     
     # log metrics
-    param_norm = jax.tree.reduce(lambda s, x: s+jnp.abs(x).sum(), opt_state.model, 0.) / n_param
-    metrics = {'train_loss': loss, 'param_norm': param_norm}
     hyperparams = {k:v.value for k, v in opt_state.opt_state.hyperparams.items()}
-    metrics |= hyperparams
+    metrics = {'train_loss': loss} | hyperparams
 
     return opt_state, metrics
 
 
 @partial(jax.jit, static_argnames='eval_grads')
-def compute_metrics_eval(model_graphdef, opt_state, ds_valid, eval_grads):
+def compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, eval_grads):
     metrics = {}
     params = opt_state.model
 
@@ -79,6 +77,9 @@ def compute_metrics_eval(model_graphdef, opt_state, ds_valid, eval_grads):
     accs, losses = jax.lax.map(partial(loss_and_accuracy_fn, model), ds_valid)
     metrics['eval_loss'] = losses.mean()
     metrics['eval_acc'] = accs.mean()
+
+    # compute parameter norm
+    metrics['param_norm'] = jax.tree.reduce(lambda s, x: s+jnp.abs(x).sum(), opt_state.model, 0.) / n_param
 
     # optionally compute gradient statistics
     if eval_grads:
@@ -169,7 +170,7 @@ def train_and_evaluate(c: DictConfig):
             batch = jax.device_put(get_batch_train(step), batch_sharding)
 
             # training step
-            opt_state, metrics_train, = train_step(opt_graphdef, opt_state, batch, params_init, n_param)
+            opt_state, metrics_train = train_step(opt_graphdef, opt_state, batch, params_init)
             metrics_train |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
 
             # async logging
@@ -184,7 +185,7 @@ def train_and_evaluate(c: DictConfig):
 
             # eval step
             if (step % c.eval_every_steps == 0) or ((step+1) == c.opt.num_microbtach_steps):
-                pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, c.eval_gradients)
+                pending_metrics_valid = compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, c.eval_gradients)
 
             # checkpoint
             if c.save_checkpoints and step in checkpoint_steps:
