@@ -29,23 +29,23 @@ def get_learning_rate_schedule(c: OmegaConf) -> optax.Schedule:
     )
 
     # decay
-    if c.cooldown_type == "cosine":
+    if c.cooldown_type == 'cosine':
         schedules.append(
             optax.cosine_decay_schedule(init_value=c.peak_learning_rate, decay_steps=cooldown_steps)
         )
-    elif c.cooldown_type == "linear":
+    elif c.cooldown_type == 'linear':
         schedules.append(
             optax.linear_schedule(init_value=c.peak_learning_rate, end_value=0, transition_steps=cooldown_steps)
         )
     else:
-        raise NotImplementedError(f"Unsupported decay type: {c.cooldown_type}")
+        raise NotImplementedError(f'Unsupported decay type: {c.cooldown_type}')
 
     return optax.join_schedules(schedules, boundaries=[warmup_steps, warmup_steps+stable_steps])
 
 
 def hparam_str_to_schedule(s, tokens_per_microbatch):
     """
-    - 's' must be either a scalar or schedule in the format "b1:v1;b2:v2...", where 'b:v' is boundary:value
+    - 's' must be either a scalar or schedule in the format 'b1:v1;b2:v2...', where 'b:v' is boundary:value
     - example inputs: '1', '5.2', '0:5;100:10;200:20'
     - the boundaries are measured in number of tokens seen
     - the returned schedule is piecewise constant
@@ -56,7 +56,7 @@ def hparam_str_to_schedule(s, tokens_per_microbatch):
         return float(s)
 
     # case 2: picewise constant schedule
-    # assuming (transition:value) format, e.g. "0:5;1_000:10"
+    # assuming (transition:value) format, e.g. '0:5;1_000:10'
 
     # get transition boundaries and values
     values = {}
@@ -86,7 +86,7 @@ def hparam_str_to_schedule(s, tokens_per_microbatch):
 def get_optimizer(c: OmegaConf, tokens_per_microbatch: int):
     learning_rate_fn = get_learning_rate_schedule(c)
     multistep_wrapper = multistep.SingleSteps if c.grad_accumulation_steps==1 else multistep.MultiSteps
-    assert c.optimizer == "adamw2"
+    assert c.optimizer == 'adamw2'
     optimizer = optax.inject_hyperparams(
         lambda learning_rate, t1, r, weight_decay, grad_acc_steps: 
             multistep_wrapper(

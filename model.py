@@ -67,21 +67,20 @@ def fsdp_init(layer_type: str, fsdp_enabled: bool):
     kernel_init = jax.nn.initializers.xavier_uniform()
     embed_init = jax.nn.initializers.variance_scaling(1.0, 'fan_in', 'normal', out_axis=0)
     match layer_type:
-        case "embedding":    # [V, D]
-            return partition_fn(embed_init, (None, "data"))
-        case "attn_in_proj":    # [D, H, D/H]
-            return partition_fn(kernel_init, ("data", None, None))
-        case "attn_out_proj":    # [H, D/H, D]
-            return partition_fn(kernel_init, (None, None, "data"))
-        case "mlp_kernel":    # [D, F]
-            return partition_fn(kernel_init, ("data", None))
+        case 'embedding':    # [V, D]
+            return partition_fn(embed_init, (None, 'data'))
+        case 'attn_in_proj':    # [D, H, D/H]
+            return partition_fn(kernel_init, ('data', None, None))
+        case 'attn_out_proj':    # [H, D/H, D]
+            return partition_fn(kernel_init, (None, None, 'data'))
+        case 'mlp_kernel':    # [D, F]
+            return partition_fn(kernel_init, ('data', None))
         case _:
-            raise ValueError(f"unrecognized layer type: {layer_type}")
+            raise ValueError(f'unrecognized layer type: {layer_type}')
 
 
 def create_sharded_model(c: DictConfig, mesh: Mesh):
     """https://flax.readthedocs.io/en/latest/guides/flax_gspmd.html"""
-    # TODO: add rng key
 
     # initialize sharded model without putting it on a single device
     @nnx.jit

@@ -113,7 +113,6 @@ def compute_metrics_eval(model_graphdef, opt_state, ds_valid, n_param, eval_grad
 
 
 def train_and_evaluate(c: DictConfig):
-    """Train loop."""
 
     # setup
     key = jax.random.key(c.seed)
@@ -135,7 +134,7 @@ def train_and_evaluate(c: DictConfig):
     # model
     # all devices are aligned across a single mesh axis called 'data'
     # we use FSDP to shard data, model, and optimzier parameters across this axis
-    mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ("data",))
+    mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ('data',))
     model = model_lib.create_sharded_model(c, mesh)
     model_graphdef = nnx.graphdef(model)
     tx = optimizer_lib.get_optimizer(c.opt, tokens_per_microbatch) # otax optimizer transform
@@ -176,7 +175,7 @@ def train_and_evaluate(c: DictConfig):
             # async logging
             if jax.process_index() == 0:
                 if pending_metrics_train is not None:
-                    pbar.set_postfix_str(f'loss={pending_metrics_train["train_loss"]:5.2f}, lr={pending_metrics_train["learning_rate"]:.5f}')
+                    pbar.set_postfix_str(f'loss={pending_metrics_train['train_loss']:5.2f}, lr={pending_metrics_train['learning_rate']:.5f}')
                     wandb.log(pending_metrics_train, step-1)
                 pending_metrics_train = metrics_train
                 if pending_metrics_valid is not None:
