@@ -40,7 +40,7 @@ opt:
   cooldown_type: 'cosine'
   adam_t1: 2_000_000
   adam_t2_t1_ratio: 5
-  weight_decay: 0.1
+  weight_decay: 0
   eps: 1.0e-9
   ema1_halflife: 0.01
   ema2_halflife: 0.02
