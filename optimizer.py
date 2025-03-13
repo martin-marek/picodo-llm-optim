@@ -111,6 +111,9 @@ def get_optimizer(c: OmegaConf, tokens_per_microbatch: int):
 
 class ScaleByAdamW2State(NamedTuple):
     step: jax.Array
+    t2: jax.Array # β2 decay half-life
+    b1: jax.Array # β1 decay coefficient
+    b2: jax.Array # β2 decay coefficient
     m1: base.Params # ema of g
     m2: base.Params # ema of g**2
 
@@ -124,28 +127,24 @@ def adamw2(
         weight_decay: float = 1e-4,
     ) -> base.GradientTransformation:
 
-    # convert half-lives to decay values
-    t2 = t1 * r # β2 decay half-life
-    b1 = utils.halflife_to_decay(t1, tokens_per_opt_step) # β1 decay coefficient
-    b2 = utils.halflife_to_decay(t2, tokens_per_opt_step) # β2 decay coefficient
-    # ema1_decay = utils.halflife_to_decay(c.ema1_halflife, tokens_per_opt_step)
-    # ema2_decay = utils.halflife_to_decay(c.ema2_halflife, tokens_per_opt_step)
-
     def init_fn(params):
+        t2 = t1 * r
+        b1 = utils.halflife_to_decay(t1, tokens_per_opt_step)
+        b2 = utils.halflife_to_decay(t2, tokens_per_opt_step)
         step = jnp.zeros([], jnp.int32)
         m1 = otu.tree_zeros_like(params)
         m2 = otu.tree_zeros_like(params)
-        return ScaleByAdamW2State(step, m1, m2)
+        return ScaleByAdamW2State(step, t2, b1, b2, m1, m2)
 
     def update_fn(updates, state, params, grad_std=None):
 
         # update adam moments
-        m1 = jax.tree.map(lambda g, m: b1*m + (1-b1)*g, updates, state.m1)
-        m2 = jax.tree.map(lambda g, m: b2*m + (1-b2)*(g**2), updates, state.m2)
+        m1 = jax.tree.map(lambda g, m: state.b1*m + (1-state.b1)*g, updates, state.m1)
+        m2 = jax.tree.map(lambda g, m: state.b2*m + (1-state.b2)*(g**2), updates, state.m2)
 
         # scale by adam
-        m1_hat = otu.tree_bias_correction(m1, b1, state.step+1)
-        m2_hat = otu.tree_bias_correction(m2, b2, state.step+1)
+        m1_hat = otu.tree_bias_correction(m1, state.b1, state.step+1)
+        m2_hat = otu.tree_bias_correction(m2, state.b2, state.step+1)
         updates = jax.tree.map(lambda m, v: m / (jnp.sqrt(v) + eps), m1_hat, m2_hat)
 
         # add weight decay
@@ -154,7 +153,7 @@ def adamw2(
         # scale by lr
         updates = jax.tree.map(lambda g: -learning_rate * g, updates)
 
-        return updates, ScaleByAdamW2State(state.step+1, m1, m2)
+        return updates, ScaleByAdamW2State(state.step+1, state.t2, state.b1, state.b2, m1, m2)
 
     return base.GradientTransformation(init_fn, update_fn)
 
