@@ -121,8 +121,8 @@ class ScaleByAdamW2State(NamedTuple):
 def adamw2(
         learning_rate: float,
         tokens_per_opt_step: int,
-        t1: float = 2_000_000, # β1 decay half-life in num. tokens
-        r: float = 0.999, # ratio of β2/β1 decay half-life
+        t1: float = 1_000_000, # β1 decay half-life in num. tokens
+        r: float = 5, # ratio of β2/β1 decay half-life
         eps: float = 1e-8,
         weight_decay: float = 1e-4,
     ) -> base.GradientTransformation:
