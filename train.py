@@ -132,6 +132,7 @@ def train_and_evaluate(c: DictConfig):
     c.eval_num_tokens = c.eval_num_tokens or ds_valid_size
     c.eval_steps = max(1, c.eval_num_tokens // tokens_per_eval_step)
     c.eval_every_steps = max(1, c.eval_every_tokens // tokens_per_microbatch)
+    c.opt.batch_size = (c.opt.grad_accumulation_steps * c.opt.train_microbatch_size) if isinstance(c.opt.grad_accumulation_steps, int) else None 
 
     # model
     # all devices are aligned across a single mesh axis called 'data'
