@@ -63,7 +63,7 @@ def train_step(opt_graphdef, opt_state, batch, params_init):
     # log metrics
     adam_state = opt_state.opt_state.inner_state.inner_opt_state
     hyperparams = {k:v.value for k, v in opt_state.opt_state.hyperparams.items()}
-    hyperparams |= {k: adam_state[k].value for k in ('t2', 'b1', 'b2')}
+    hyperparams |= {k: adam_state[k].value for k in ('b1', 'b2')}
     metrics = {'train_loss': loss} | hyperparams
 
     return opt_state, metrics

@@ -111,7 +111,6 @@ def get_optimizer(c: OmegaConf, tokens_per_microbatch: int):
 
 class ScaleByAdamW2State(NamedTuple):
     step: jax.Array
-    t2: jax.Array # β2 decay half-life
     b1: jax.Array # β1 decay coefficient
     b2: jax.Array # β2 decay coefficient
     m1: base.Params # ema of g
@@ -133,7 +132,7 @@ def adamw2(
         step = jnp.zeros([], jnp.int32)
         m1 = otu.tree_zeros_like(params)
         m2 = otu.tree_zeros_like(params)
-        return ScaleByAdamW2State(step, t2, b1, b2, m1, m2)
+        return ScaleByAdamW2State(step, b1, b2, m1, m2)
 
     def update_fn(updates, state, params, grad_std=None):
 
@@ -152,7 +151,7 @@ def adamw2(
         # scale by lr
         updates = jax.tree.map(lambda g: -learning_rate * g, updates)
 
-        return updates, ScaleByAdamW2State(state.step+1, state.t2, state.b1, state.b2, m1, m2)
+        return updates, ScaleByAdamW2State(state.step+1, state.b1, state.b2, m1, m2)
 
     return base.GradientTransformation(init_fn, update_fn)
 
