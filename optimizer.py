@@ -88,12 +88,12 @@ def get_optimizer(c: OmegaConf, tokens_per_microbatch: int):
     multistep_wrapper = multistep.SingleSteps if c.grad_accumulation_steps==1 else multistep.MultiSteps
     assert c.optimizer == 'adamw2'
     optimizer = optax.inject_hyperparams(
-        lambda learning_rate, t1, t2, weight_decay, grad_acc_steps: 
+        lambda learning_rate, b1, t2, weight_decay, grad_acc_steps: 
             multistep_wrapper(
                 adamw2(
                     learning_rate=learning_rate,
                     tokens_per_opt_step=grad_acc_steps*tokens_per_microbatch,
-                    t1=t1,
+                    b1=b1,
                     t2=t2,
                     eps=c.eps,
                     weight_decay=weight_decay,
@@ -101,7 +101,7 @@ def get_optimizer(c: OmegaConf, tokens_per_microbatch: int):
                 grad_acc_steps,
             )
         )(learning_rate=learning_rate_fn,
-          t1=hparam_str_to_schedule(c.adam_t1, tokens_per_microbatch),
+          b1=hparam_str_to_schedule(c.adam_b1, tokens_per_microbatch),
           t2=hparam_str_to_schedule(c.adam_t2, tokens_per_microbatch),
           weight_decay=hparam_str_to_schedule(c.weight_decay, tokens_per_microbatch),
           grad_acc_steps=hparam_str_to_schedule(c.grad_accumulation_steps, tokens_per_microbatch),
@@ -120,14 +120,13 @@ class ScaleByAdamW2State(NamedTuple):
 def adamw2(
         learning_rate: float,
         tokens_per_opt_step: int,
-        t1: float = 1_000_000, # β1 decay half-life in num. tokens
+        b1: float = 0.9,
         t2: float = 20_000_000, # β2 decay half-life in num. tokens
         eps: float = 1e-8,
         weight_decay: float = 1e-4,
     ) -> base.GradientTransformation:
 
     def init_fn(params):
-        b1 = utils.halflife_to_decay(t1, tokens_per_opt_step)
         b2 = utils.halflife_to_decay(t2, tokens_per_opt_step)
         step = jnp.zeros([], jnp.int32)
         m1 = otu.tree_zeros_like(params)

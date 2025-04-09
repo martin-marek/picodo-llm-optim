@@ -36,7 +36,7 @@ opt:
   warmup_frac: 0.05
   cooldown_frac: 0.95
   cooldown_type: 'cosine'
-  adam_t1: 2_000_000
+  adam_b1: 0.9
   adam_t2: 20_000_000
   weight_decay: 0
   eps: 1.0e-9

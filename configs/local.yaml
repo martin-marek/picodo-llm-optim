@@ -20,6 +20,5 @@ opt:
   train_microbatch_size: 8
   eval_batch_size: 8
   grad_accumulation_steps: "0:1;10_000:5;50_000:10"
-  adam_t1: 1_000
   adam_t2: 1_000_000
   num_train_tokens: 100_000
