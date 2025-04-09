@@ -2,5 +2,5 @@ defaults:
   - default
   - _self_
 
-ds_path: "/home/martin/fineweb_gpt2_2p5B.bin"
+ds_path: '/home/martin/fineweb_gpt2_2p5B.bin'
 wandb_project: 'picodo-fineweb'
