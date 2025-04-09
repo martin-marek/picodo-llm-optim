@@ -4,15 +4,14 @@ defaults:
   - override hydra/job_logging: disabled
 
 seed: 0
-ds_train_path: null
-ds_eval_path: null
-eval_num_tokens: null
+ds_path: null
+num_train_tokens: null
+num_eval_tokens: 1_000_000
 eval_every_tokens: 20_000_000
 eval_gradients: false
 save_checkpoints: false
 ckpt_save_dir: 'weights'
 ckpt_restore_path: null
-ds_offset_idx: 0 # use when resuming from checkpoint
 wandb_project: 'picodo-pretrain'
 wandb_mode: 'online'
 run_name: null
@@ -33,7 +32,6 @@ opt:
   train_microbatch_size: 64
   eval_batch_size: 64
   grad_accumulation_steps: 1
-  num_train_tokens: null
   peak_learning_rate: 0.002
   warmup_frac: 0.05
   cooldown_frac: 0.95

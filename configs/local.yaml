@@ -2,9 +2,8 @@ defaults:
   - default
   - _self_
 
-ds_train_path: '/Users/martin/datasets/fineweb_edu_gpt2_2.5B/train.bin'
-ds_eval_path: '/Users/martin/datasets/fineweb_edu_gpt2_2.5B/val.bin'
-eval_num_tokens: 5_000
+ds_path: '/Users/martin/datasets/fineweb_gpt2_2p5B.bin'
+num_eval_tokens: 5_000
 eval_every_tokens: 10_000
 # ckpt_restore_path: 'weights/1_87'
 wandb_project: 'picodo-local'
@@ -18,7 +17,9 @@ model:
   F: 128
 
 opt:
-  train_batch_size: 16
+  train_microbatch_size: 8
   eval_batch_size: 8
-  grad_accumulation_steps: 2
+  grad_accumulation_steps: "0:1;10_000:5;50_000:10"
+  adam_t1: 1_000
+  adam_t2: 1_000_000
   num_train_tokens: 100_000
