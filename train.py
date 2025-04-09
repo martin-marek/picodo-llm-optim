@@ -121,8 +121,9 @@ def train_and_evaluate(c: DictConfig):
     key, key_model = jax.random.split(key)
 
     # datastes
-    get_batch_train, ds_train_size = data.make_ds_loader(c.ds_path, c.model.L, c.opt.train_microbatch_size, c.num_eval_tokens)
-    get_batch_valid, _ = data.make_ds_loader(c.ds_path, c.model.L, c.opt.eval_batch_size)
+    c.ds_eval_path = c.ds_eval_path or c.ds_train_path
+    get_batch_train, ds_train_size = data.make_ds_loader(c.ds_train_path, c.model.L, c.opt.train_microbatch_size, c.num_eval_tokens)
+    get_batch_valid, _ = data.make_ds_loader(c.ds_eval_path, c.model.L, c.opt.eval_batch_size)
 
     # get number of training steps
     c.num_train_tokens = c.num_train_tokens or ds_train_size
