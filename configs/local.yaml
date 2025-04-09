@@ -3,6 +3,7 @@ defaults:
   - _self_
 
 ds_path: '/Users/martin/datasets/fineweb_gpt2_2p5B.bin'
+num_train_tokens: 100_000
 num_eval_tokens: 5_000
 eval_every_tokens: 10_000
 # ckpt_restore_path: 'weights/1_87'
