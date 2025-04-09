@@ -125,10 +125,10 @@ def train_and_evaluate(c: DictConfig):
     get_batch_valid, _ = data.make_ds_loader(c.ds_path, c.model.L, c.opt.eval_batch_size)
 
     # get number of training steps
-    c.opt.num_train_tokens = c.opt.num_train_tokens or ds_train_size
+    c.num_train_tokens = c.num_train_tokens or ds_train_size
     tokens_per_microbatch = c.opt.train_microbatch_size * c.model.L
     tokens_per_eval_step = c.opt.eval_batch_size * c.model.L
-    c.opt.num_microbtach_steps = c.opt.num_train_tokens // tokens_per_microbatch
+    c.opt.num_microbtach_steps = c.num_train_tokens // tokens_per_microbatch
     c.eval_steps = c.num_eval_tokens // tokens_per_eval_step
     c.eval_every_steps = max(1, c.eval_every_tokens // tokens_per_microbatch)
     c.opt.batch_size = (c.opt.grad_accumulation_steps * c.opt.train_microbatch_size) if isinstance(c.opt.grad_accumulation_steps, int) else None 
